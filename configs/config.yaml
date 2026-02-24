@@ -1,0 +1,25 @@
+server:
+  host: 0.0.0.0
+  port: 8080
+  max_body_mb: 5
+  timeout_seconds: 300
+  sync_interval: 60
+
+database:
+  path: ./data/modelgate.db
+
+redis:
+  addr: localhost:6379
+  password: ""
+  db: 0
+
+backends:
+  - type: ollama
+    url: http://localhost:11434
+    model_name: default
+  - type: vllm
+    url: http://localhost:8000
+    model_name: default
+  - type: llama.cpp
+    url: http://localhost:8080
+    model_name: default

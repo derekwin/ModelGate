@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ModelGate 管理后台</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus@2.4.4/dist/index.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
+        #app { height: 100vh; }
+        .sidebar { width: 240px; height: 100vh; background: #304156; position: fixed; left: 0; top: 0; }
+        .sidebar-logo { padding: 20px; color: white; font-size: 20px; font-weight: bold; text-align: center; }
+        .sidebar-menu { padding: 20px 0; }
+        .sidebar-menu .el-menu-item { height: 50px; line-height: 50px; padding-left: 20px !important; }
+        .sidebar-menu .el-menu-item.is-active { background: #00182e !important; }
+        .main-content { margin-left: 240px; height: 100vh; overflow-y: auto; background: #f0f2f5; }
+        .header { background: white; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .header-title { font-size: 24px; font-weight: bold; color: #333; }
+        .content { padding: 20px; }
+        .card { background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .card-title { font-size: 18px; font-weight: bold; margin-bottom: 15px; color: #333; }
+        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 20px; }
+        .stat-card { background: white; border-radius: 8px; padding: 20px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .stat-value { font-size: 28px; font-weight: bold; color: #409eff; margin-bottom: 10px; }
+        .stat-label { color: #666; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="sidebar">
+            <div class="sidebar-logo">ModelGate 管理</div>
+            <el-menu class="sidebar-menu" :default-active="activeMenu" @select="handleMenuSelect" router>
+                <el-menu-item index="/health">后端健康</el-menu-item>
+                <el-menu-item index="/tenants">多租户管理</el-menu-item>
+                <el-menu-item index="/usage">用量统计</el-menu-item>
+            </el-menu>
+        </div>
+        <div class="main-content">
+            <div class="header">
+                <div class="header-title">ModelGate 管理后台</div>
+            </div>
+            <div class="content">
+                <router-view/>
+            </div>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/vue@3.4.27/dist/vue.global.prod.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/element-plus@2.4.4/dist/index.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vue-router@4.2.55/dist/vue-router.global.prod.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <script>
+        const { createApp, ref, onMounted } = Vue;
+        const { createRouter, createWebHashHistory } = VueRouter;
+        const { ElMessage, ElMessageBox } = ElementPlus;
+
+        const API_BASE = '/admin';
+
+        const HealthView = {
+            template: `
+                <div>
+                    <div class="card">
+                        <div class="card-title">后端健康状态</div>
+                        <el-button type="primary" @click="checkAll" :loading="checking">立即检查所有后端</el-button>
+                        <el-button @click="refresh" style="margin-left: 10px">刷新</el-button>
+                        <el-table :data="healths" style="margin-top: 20px" stripe>
+                            <el-table-column prop="backend_type" label="后端类型" width="120"/>
+                            <el-table-column prop="backend_url" label="后端地址"/>
+                            <el-table-column label="状态" width="100">
+                                <template #default="scope">
+                                    <el-tag :type="scope.row.is_valid ? 'success' : 'danger'">
+                                        {{ scope.row.is_valid ? '正常' : '异常' }}
+                                    </el-tag>
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="last_check" label="最后检查" width="180">
+                                <template #default="scope">
+                                    {{ formatDate(scope.row.last_check) }}
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="response_time" label="响应时间" width="120">
+                                <template #default="scope">
+                                    {{ scope.row.response_time }}ms
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="last_error" label="错误信息"/>
+                        </el-table>
+                    </div>
+                </div>
+            `,
+            setup() {
+                const healths = ref([]);
+                const checking = ref(false);
+
+                const fetchHealths = async () => {
+                    try {
+                        const res = await axios.get(`${API_BASE}/health/all`);
+                        healths.value = res.data.data || [];
+                    } catch (err) {
+                        ElMessage.error('获取健康状态失败');
+                    }
+                };
+
+                const checkAll = async () => {
+                    checking.value = true;
+                    try {
+                        await axios.post(`${API_BASE}/health/check`);
+                        ElMessage.success('健康检查已启动');
+                        await new Promise(r => setTimeout(r, 2000));
+                        await fetchHealths();
+                    } catch (err) {
+                        ElMessage.error('健康检查失败');
+                    } finally {
+                        checking.value = false;
+                    }
+                };
+
+                const refresh = () => fetchHealths();
+
+                const formatDate = (dateStr) => {
+                    if (!dateStr) return '-';
+                    return new Date(dateStr).toLocaleString('zh-CN');
+                };
+
+                onMounted(() => fetchHealths());
+
+                return { healths, checking, checkAll, refresh, formatDate };
+            }
+        };
+
+        const TenantsView = {
+            template: `
+                <div>
+                    <div class="card">
+                        <div class="card-title">用户管理</div>
+                        <el-button type="primary" @click="showUserDialog = true">添加用户</el-button>
+                        <el-table :data="users" style="margin-top: 20px" stripe>
+                            <el-table-column prop="name" label="用户名"/>
+                            <el-table-column prop="email" label="邮箱"/>
+                            <el-table-column prop="status" label="状态" width="100">
+                                <template #default="scope">
+                                    <el-tag>{{ scope.row.status }}</el-tag>
+                                </template>
+                            </el-table-column>
+                            <el-table-column label="操作" width="200">
+                                <template #default="scope">
+                                    <el-button type="primary" size="small" @click="editUser(scope.row)">编辑</el-button>
+                                    <el-button type="danger" size="small" @click="deleteUser(scope.row)">删除</el-button>
+                                </template>
+                            </el-table-column>
+                        </el-table>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-title">API Key 管理</div>
+                        <el-button type="primary" @click="showApiKeyDialog = true">添加 API Key</el-button>
+                        <el-table :data="apiKeys" style="margin-top: 20px" stripe>
+                            <el-table-column prop="id" label="ID" width="80"/>
+                            <el-table-column prop="user_id" label="用户ID" width="100"/>
+                            <el-table-column prop="key_hash" label="Key Hash" width="200"/>
+                            <el-table-column prop="quota_tokens" label="配额" width="120"/>
+                            <el-table-column prop="used_tokens" label="已用" width="120"/>
+                            <el-table-column prop="rate_limit_rpm" label="RPM限制" width="120"/>
+                            <el-table-column prop="status" label="状态" width="100">
+                                <template #default="scope">
+                                    <el-tag>{{ scope.row.status }}</el-tag>
+                                </template>
+                            </el-table-column>
+                            <el-table-column label="操作" width="200">
+                                <template #default="scope">
+                                    <el-button type="primary" size="small" @click="editApiKey(scope.row)">编辑</el-button>
+                                    <el-button type="danger" size="small" @click="deleteApiKey(scope.row)">删除</el-button>
+                                </template>
+                            </el-table-column>
+                        </el-table>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-title">模型管理</div>
+                        <el-button type="primary" @click="showModelDialog = true">添加模型</el-button>
+                        <el-table :data="models" style="margin-top: 20px" stripe>
+                            <el-table-column prop="name" label="模型名称"/>
+                            <el-table-column prop="backend_type" label="后端类型" width="120">
+                                <template #default="scope">
+                                    <el-tag>{{ scope.row.backend_type }}</el-tag>
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="backend_url" label="后端地址"/>
+                            <el-table-column prop="backend_model_name" label="后端模型名"/>
+                            <el-table-column label="状态" width="100">
+                                <template #default="scope">
+                                    <el-tag :type="scope.row.is_active ? 'success' : 'danger'">
+                                        {{ scope.row.is_active ? '启用' : '禁用' }}
+                                    </el-tag>
+                                </template>
+                            </el-table-column>
+                            <el-table-column label="操作" width="200">
+                                <template #default="scope">
+                                    <el-button type="primary" size="small" @click="editModel(scope.row)">编辑</el-button>
+                                    <el-button type="danger" size="small" @click="deleteModel(scope.row)">删除</el-button>
+                                </template>
+                            </el-table-column>
+                        </el-table>
+                    </div>
+
+                    <el-dialog v-model="showUserDialog" title="添加用户" width="500px">
+                        <el-form :model="newUserForm" :rules="userRules" ref="userFormRef">
+                            <el-form-item label="用户名" prop="name">
+                                <el-input v-model="newUserForm.name"/>
+                            </el-form-item>
+                            <el-form-item label="邮箱" prop="email">
+                                <el-input v-model="newUserForm.email"/>
+                            </el-form-item>
+                        </el-form>
+                        <template #footer>
+                            <el-button @click="showUserDialog = false">取消</el-button>
+                            <el-button type="primary" @click="handleSaveUser" :loading="userLoading">确定</el-button>
+                        </template>
+                    </el-dialog>
+
+                    <el-dialog v-model="showApiKeyDialog" title="添加 API Key" width="500px">
+                        <el-form :model="newApiKeyForm" :rules="apiKeyRules" ref="apiKeyFormRef">
+                            <el-form-item label="用户ID" prop="user_id">
+                                <el-input-number v-model="newApiKeyForm.user_id" :min="1"/>
+                            </el-form-item>
+                            <el-form-item label="配额(Tokens)" prop="quota_tokens">
+                                <el-input-number v-model="newApiKeyForm.quota_tokens" :min="0"/>
+                            </el-form-item>
+                            <el-form-item label="RPM限制" prop="rate_limit_rpm">
+                                <el-input-number v-model="newApiKeyForm.rate_limit_rpm" :min="1"/>
+                            </el-form-item>
+                        </el-form>
+                        <template #footer>
+                            <el-button @click="showApiKeyDialog = false">取消</el-button>
+                            <el-button type="primary" @click="handleSaveApiKey" :loading="apiKeyLoading">确定</el-button>
+                        </template>
+                    </el-dialog>
+
+                    <el-dialog v-model="showModelDialog" title="添加模型" width="600px">
+                        <el-form :model="newModelForm" :rules="modelRules" ref="modelFormRef">
+                            <el-form-item label="模型名称" prop="name">
+                                <el-input v-model="newModelForm.name"/>
+                            </el-form-item>
+                            <el-form-item label="后端类型" prop="backend_type">
+                                <el-select v-model="newModelForm.backend_type">
+                                    <el-option label="Ollama" value="ollama"/>
+                                    <el-option label="vLLM" value="vllm"/>
+                                    <el-option label="llama.cpp" value="llamacpp"/>
+                                </el-select>
+                            </el-form-item>
+                            <el-form-item label="后端URL" prop="backend_url">
+                                <el-input v-model="newModelForm.backend_url"/>
+                            </el-form-item>
+                            <el-form-item label="后端模型名" prop="backend_model_name">
+                                <el-input v-model="newModelForm.backend_model_name"/>
+                            </el-form-item>
+                            <el-form-item label="是否启用" prop="is_active">
+                                <el-switch v-model="newModelForm.is_active"/>
+                            </el-form-item>
+                        </el-form>
+                        <template #footer>
+                            <el-button @click="showModelDialog = false">取消</el-button>
+                            <el-button type="primary" @click="handleSaveModel" :loading="modelLoading">确定</el-button>
+                        </template>
+                    </el-dialog>
+                </div>
+            `,
+            setup() {
+                const users = ref([]);
+                const apiKeys = ref([]);
+                const models = ref([]);
+                const showUserDialog = ref(false);
+                const showApiKeyDialog = ref(false);
+                const showModelDialog = ref(false);
+                const userLoading = ref(false);
+                const apiKeyLoading = ref(false);
+                const modelLoading = ref(false);
+
+                const newUserForm = ref({ name: '', email: '' });
+                const newApiKeyForm = ref({ user_id: 1, quota_tokens: 1000000, rate_limit_rpm: 60 });
+                const newModelForm = ref({ name: '', backend_type: 'ollama', backend_url: '', backend_model_name: '', is_active: true });
+
+                const userRules = { name: [{ required: true, message: '请输入用户名', trigger: 'blur' }], email: [{ type: 'email', message: '请输入正确的邮箱地址', trigger: 'blur' }] };
+                const apiKeyRules = { user_id: [{ required: true, message: '请选择用户', trigger: 'change' }], quota_tokens: [{ required: true, message: '请输入配额', trigger: 'change' }], rate_limit_rpm: [{ required: true, message: '请输入RPM限制', trigger: 'change' }] };
+                const modelRules = { name: [{ required: true, message: '请输入模型名称', trigger: 'blur' }], backend_type: [{ required: true, message: '请选择后端类型', trigger: 'change' }], backend_url: [{ required: true, message: '请输入后端URL', trigger: 'blur' }], backend_model_name: [{ required: true, message: '请输入后端模型名', trigger: 'blur' }] };
+
+                const fetchData = async () => {
+                    try {
+                        const [usersRes, apiKeysRes, modelsRes] = await Promise.all([
+                            axios.get(`${API_BASE}/tenants/users`),
+                            axios.get(`${API_BASE}/tenants/apikeys`),
+                            axios.get(`${API_BASE}/tenants/models`)
+                        ]);
+                        users.value = usersRes.data.data || [];
+                        apiKeys.value = apiKeysRes.data.data || [];
+                        models.value = modelsRes.data.data || [];
+                    } catch (err) {
+                        ElMessage.error('获取数据失败');
+                    }
+                };
+
+                const handleSaveUser = async () => {
+                    try {
+                        userLoading.value = true;
+                        await axios.post(`${API_BASE}/tenants/users`, newUserForm.value);
+                        ElMessage.success('添加成功');
+                        showUserDialog.value = false;
+                        await fetchData();
+                    } catch (err) {
+                        ElMessage.error('添加失败');
+                    } finally {
+                        userLoading.value = false;
+                    }
+                };
+
+                const handleSaveApiKey = async () => {
+                    try {
+                        apiKeyLoading.value = true;
+                        await axios.post(`${API_BASE}/tenants/apikeys`, newApiKeyForm.value);
+                        ElMessage.success('添加成功');
+                        showApiKeyDialog.value = false;
+                        await fetchData();
+                    } catch (err) {
+                        ElMessage.error('添加失败');
+                    } finally {
+                        apiKeyLoading.value = false;
+                    }
+                };
+
+                const handleSaveModel = async () => {
+                    try {
+                        modelLoading.value = true;
+                        await axios.post(`${API_BASE}/tenants/models`, newModelForm.value);
+                        ElMessage.success('添加成功');
+                        showModelDialog.value = false;
+                        await fetchData();
+                    } catch (err) {
+                        ElMessage.error('添加失败');
+                    } finally {
+                        modelLoading.value = false;
+                    }
+                };
+
+                const deleteUser = async (user) => {
+                    if (!await ElMessageBox.confirm(`确认删除用户 ${user.name}？`, '警告', { type: 'warning' })) return;
+                    try {
+                        await axios.delete(`${API_BASE}/tenants/users/${user.id}`);
+                        ElMessage.success('删除成功');
+                        await fetchData();
+                    } catch (err) {
+                        ElMessage.error('删除失败');
+                    }
+                };
+
+                const deleteApiKey = async (apiKey) => {
+                    if (!await ElMessageBox.confirm(`确认删除 API Key？`, '警告', { type: 'warning' })) return;
+                    try {
+                        await axios.delete(`${API_BASE}/tenants/apikeys/${apiKey.id}`);
+                        ElMessage.success('删除成功');
+                        await fetchData();
+                    } catch (err) {
+                        ElMessage.error('删除失败');
+                    }
+                };
+
+                const deleteModel = async (model) => {
+                    if (!await ElMessageBox.confirm(`确认删除模型 ${model.name}？`, '警告', { type: 'warning' })) return;
+                    try {
+                        await axios.delete(`${API_BASE}/tenants/models/${model.id}`);
+                        ElMessage.success('删除成功');
+                        await fetchData();
+                    } catch (err) {
+                        ElMessage.error('删除失败');
+                    }
+                };
+
+                onMounted(() => fetchData());
+
+                return {
+                    users, apiKeys, models,
+                    showUserDialog, showApiKeyDialog, showModelDialog,
+                    userLoading, apiKeyLoading, modelLoading,
+                    newUserForm, newApiKeyForm, newModelForm,
+                    userRules, apiKeyRules, modelRules,
+                    handleSaveUser, handleSaveApiKey, handleSaveModel,
+                    deleteUser, deleteApiKey, deleteModel
+                };
+            }
+        };
+
+        const UsageView = {
+            template: `
+                <div>
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-value">{{ stats.total_used_tokens }}</div>
+                            <div class="stat-label">总消耗 Tokens</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">{{ stats.active_keys }}</div>
+                            <div class="stat-label">活跃 API Key</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">{{ usageData.length }}</div>
+                            <div class="stat-label">数据点</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">{{ logs.length }}</div>
+                            <div class="stat-label">最近日志</div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-title">用量趋势 (按小时)</div>
+                        <div ref="chartRef" style="height: 400px;"></div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-title">API Key 用量排行</div>
+                        <el-table :data="usageByKey" style="margin-top: 20px" stripe>
+                            <el-table-column prop="api_key_id" label="API Key ID" width="150"/>
+                            <el-table-column prop="total_tokens" label="消耗 Tokens" width="150"/>
+                            <el-table-column prop="total_requests" label="请求数" width="120"/>
+                            <el-table-column prop="avg_response_time" label="平均响应时间" width="200">
+                                <template #default="scope">
+                                    {{ scope.row.avg_response_time }}ms
+                                </template>
+                            </el-table-column>
+                        </el-table>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-title">最近日志</div>
+                        <el-table :data="logs" style="margin-top: 20px" stripe>
+                            <el-table-column prop="timestamp" label="时间" width="180">
+                                <template #default="scope">
+                                    {{ formatDate(scope.row.timestamp) }}
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="api_key_id" label="API Key ID" width="120"/>
+                            <el-table-column prop="used_tokens" label="消耗 Tokens" width="120"/>
+                            <el-table-column prop="response_time" label="响应时间" width="120">
+                                <template #default="scope">
+                                    {{ scope.row.response_time }}ms
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="status" label="状态码" width="100"/>
+                        </el-table>
+                    </div>
+                </div>
+            `,
+            setup() {
+                const stats = ref({ total_used_tokens: 0, active_keys: 0 });
+                const usageData = ref([]);
+                const usageByKey = ref([]);
+                const logs = ref([]);
+                const chartRef = ref(null);
+                const chartInstance = ref(null);
+
+                const fetchData = async () => {
+                    try {
+                        const [statsRes, usageRes, byKeyRes, logsRes] = await Promise.all([
+                            axios.get(`${API_BASE}/usage/stats`),
+                            axios.get(`${API_BASE}/usage/stats/by-time`),
+                            axios.get(`${API_BASE}/usage/stats/by-key`),
+                            axios.get(`${API_BASE}/usage/logs?limit=50`)
+                        ]);
+                        stats.value = statsRes.data.data || { total_used_tokens: 0, active_keys: 0 };
+                        usageData.value = usageRes.data.data || [];
+                        usageByKey.value = byKeyRes.data.data || [];
+                        logs.value = logsRes.data.data || [];
+                        updateChart();
+                    } catch (err) {
+                        ElMessage.error('获取数据失败');
+                    }
+                };
+
+                const updateChart = () => {
+                    if (chartInstance.value) {
+                        chartInstance.value.dispose();
+                    }
+                    const chart = echarts.init(chartRef.value);
+                    const seriesData = usageData.value.map(item => [item.time_bucket, item.total_tokens]);
+                    chart.setOption({
+                        title: { text: '消耗 Tokens 趋势', left: 'center' },
+                        tooltip: { trigger: 'axis' },
+                        xAxis: { type: 'category', data: usageData.value.map(item => item.time_bucket) },
+                        yAxis: { type: 'value' },
+                        series: [{ type: 'line', data: seriesData, smooth: true, areaStyle: {} }]
+                    });
+                    chartInstance.value = chart;
+                };
+
+                const formatDate = (dateStr) => {
+                    if (!dateStr) return '-';
+                    return new Date(dateStr).toLocaleString('zh-CN');
+                };
+
+                onMounted(() => {
+                    fetchData();
+                });
+
+                return { stats, usageData, usageByKey, logs, chartRef, formatDate };
+            }
+        };
+
+        const routes = [
+            { path: '/health', component: HealthView },
+            { path: '/tenants', component: TenantsView },
+            { path: '/usage', component: UsageView },
+            { path: '/', redirect: '/health' }
+        ];
+
+        const router = createRouter({
+            history: createWebHashHistory(),
+            routes
+        });
+
+        const app = createApp({});
+        app.use(router);
+        app.use(ElementPlus);
+        app.mount('#app');
+    </script>
+</body>
+</html>

@@ -1,0 +1,43 @@
+# ModelGate 配置文件
+# 复制此文件为 config.yaml 并修改相应配置
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  timeout_seconds: 300
+
+database:
+  path: "./data/modelgate.db"
+
+redis:
+  addr: "localhost:6379"
+  password: ""
+  db: 0
+
+backends:
+  - type: "ollama"
+    url: "http://localhost:11434"
+    model_name: ""
+
+# 可选：管理后台配置
+admin:
+  enabled: true
+  port: 8081  # 如果不使用 8080，可单独指定管理后台端口
+
+# 安全配置
+auth:
+  # 设置为 true 禁用认证 (仅开发环境使用)
+  disable: false
+
+# 速率限制
+rate_limit:
+  default_rpm: 60  # 默认每分钟请求数
+
+# 请求限制
+request:
+  max_body_mb: 5  # 最大请求体大小 (MB)
+
+# 日志配置
+log:
+  level: "info"  # debug, info, warn, error
+  format: "console"  # console, json

@@ -1,0 +1,37 @@
+# Binaries
+bin/
+modelgate
+
+# Data
+data/
+*.db
+*.sqlite
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test coverage
+coverage.out
+coverage.html
+
+# Logs
+*.log
+*.pid
+
+# Go mod
+go.sum
+
+# Temporary files
+tmp/
+*.tmp
+
+# docker-compose override
+docker-compose.override.yml
