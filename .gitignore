@@ -1,37 +1,26 @@
 # Binaries
-bin/
 modelgate
+modelgate-cli
+*.exe
 
 # Data
 data/
 *.db
-*.sqlite
+*.db-journal
 
 # IDE
-.vscode/
 .idea/
+.vscode/
 *.swp
 *.swo
-*~
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Test coverage
-coverage.out
-coverage.html
+# Build
+dist/
+build/
 
 # Logs
 *.log
-*.pid
-
-# Go mod
-go.sum
-
-# Temporary files
-tmp/
-*.tmp
-
-# docker-compose override
-docker-compose.override.yml
