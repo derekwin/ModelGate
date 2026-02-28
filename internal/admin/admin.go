@@ -66,29 +66,33 @@ func listAPIKeys(c *gin.Context) {
 	}
 
 	type keyResponse struct {
-		ID         uint   `json:"id"`
-		Key        string `json:"key"`
-		Name       string `json:"name"`
-		Quota      int64  `json:"quota"`
-		QuotaUsed  int64  `json:"quota_used"`
-		RateLimit  int    `json:"rate_limit"`
-		AllowedIPs string `json:"allowed_ips"`
-		Admin      bool   `json:"admin"`
-		Status     string `json:"status"`
+		ID           uint   `json:"id"`
+		Key          string `json:"key"`
+		Name         string `json:"name"`
+		Quota        int64  `json:"quota"`
+		QuotaUsed    int64  `json:"quota_used"`
+		RateLimit    int    `json:"rate_limit"`
+		AllowedIPs   string `json:"allowed_ips"`
+		Admin        bool   `json:"admin"`
+		Tier         string `json:"tier"`
+		DefaultModel string `json:"default_model"`
+		Status       string `json:"status"`
 	}
 
 	resp := make([]keyResponse, len(keys))
 	for i, k := range keys {
 		resp[i] = keyResponse{
-			ID:         k.ID,
-			Key:        k.Key,
-			Name:       k.Name,
-			Quota:      k.Quota,
-			QuotaUsed:  k.QuotaUsed,
-			RateLimit:  k.RateLimit,
-			AllowedIPs: k.AllowedIPs,
-			Admin:      k.Admin,
-			Status:     k.Status,
+			ID:           k.ID,
+			Key:          k.Key,
+			Name:         k.Name,
+			Quota:        k.Quota,
+			QuotaUsed:    k.QuotaUsed,
+			RateLimit:    k.RateLimit,
+			AllowedIPs:   k.AllowedIPs,
+			Admin:        k.Admin,
+			Tier:         k.Tier,
+			DefaultModel: k.DefaultModel,
+			Status:       k.Status,
 		}
 	}
 	c.JSON(http.StatusOK, resp)
@@ -96,11 +100,13 @@ func listAPIKeys(c *gin.Context) {
 
 func createAPIKey(c *gin.Context) {
 	var input struct {
-		Name       string `json:"name"`
-		Quota      int64  `json:"quota"`
-		RateLimit  int    `json:"rate_limit"`
-		AllowedIPs string `json:"allowed_ips"`
-		Admin      bool   `json:"admin"`
+		Name         string `json:"name"`
+		Quota        int64  `json:"quota"`
+		RateLimit    int    `json:"rate_limit"`
+		AllowedIPs   string `json:"allowed_ips"`
+		Admin        bool   `json:"admin"`
+		Tier         string `json:"tier"`
+		DefaultModel string `json:"default_model"`
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -108,17 +114,24 @@ func createAPIKey(c *gin.Context) {
 		return
 	}
 
+	tier := input.Tier
+	if tier == "" {
+		tier = "free"
+	}
+
 	apiKey := auth.GenerateAPIKey()
 	keyHash := auth.HashAPIKey(apiKey)
 
 	newKey := models.APIKey{
-		Key:        apiKey,
-		KeyHash:    keyHash,
-		Name:       input.Name,
-		Quota:      input.Quota,
-		RateLimit:  input.RateLimit,
-		AllowedIPs: input.AllowedIPs,
-		Admin:      input.Admin,
+		Key:          apiKey,
+		KeyHash:      keyHash,
+		Name:         input.Name,
+		Quota:        input.Quota,
+		RateLimit:    input.RateLimit,
+		AllowedIPs:   input.AllowedIPs,
+		Admin:        input.Admin,
+		Tier:         tier,
+		DefaultModel: input.DefaultModel,
 	}
 	newKey.BaseModel.Status = "active"
 
@@ -129,23 +142,28 @@ func createAPIKey(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
-		"id":         newKey.ID,
-		"key":        apiKey,
-		"name":       newKey.Name,
-		"quota":      newKey.Quota,
-		"rate_limit": newKey.RateLimit,
-		"admin":      newKey.Admin,
+		"id":            newKey.ID,
+		"key":           apiKey,
+		"name":          newKey.Name,
+		"quota":         newKey.Quota,
+		"rate_limit":    newKey.RateLimit,
+		"allowed_ips":   newKey.AllowedIPs,
+		"admin":         newKey.Admin,
+		"tier":          newKey.Tier,
+		"default_model": newKey.DefaultModel,
 	})
 }
 
 func updateAPIKey(c *gin.Context) {
 	id := c.Param("id")
 	var input struct {
-		Name       string `json:"name"`
-		Quota      int64  `json:"quota"`
-		RateLimit  int    `json:"rate_limit"`
-		AllowedIPs string `json:"allowed_ips"`
-		Status     string `json:"status"`
+		Name         string `json:"name"`
+		Quota        int64  `json:"quota"`
+		RateLimit    int    `json:"rate_limit"`
+		AllowedIPs   string `json:"allowed_ips"`
+		Status       string `json:"status"`
+		Tier         string `json:"tier"`
+		DefaultModel string `json:"default_model"`
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -175,6 +193,12 @@ func updateAPIKey(c *gin.Context) {
 	}
 	if input.Status != "" {
 		updates["status"] = input.Status
+	}
+	if input.Tier != "" {
+		updates["tier"] = input.Tier
+	}
+	if input.DefaultModel != "" {
+		updates["default_model"] = input.DefaultModel
 	}
 
 	result = database.GetDB().Model(&key).Updates(updates)

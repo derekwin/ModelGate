@@ -13,14 +13,16 @@ type BaseModel struct {
 
 type APIKey struct {
 	BaseModel
-	Key        string `gorm:"uniqueIndex;not null" json:"-"`
-	KeyHash    string `gorm:"uniqueIndex;not null" json:"key_hash"`
-	Name       string `json:"name"`
-	Quota      int64  `gorm:"default:1000000" json:"quota"`
-	QuotaUsed  int64  `gorm:"default:0" json:"quota_used"`
-	RateLimit  int    `gorm:"default:60" json:"rate_limit"`
-	AllowedIPs string `json:"allowed_ips"`
-	Admin      bool   `gorm:"default:false" json:"admin"`
+	Key          string `gorm:"uniqueIndex;not null" json:"-"`
+	KeyHash      string `gorm:"uniqueIndex;not null" json:"key_hash"`
+	Name         string `json:"name"`
+	Quota        int64  `gorm:"default:1000000" json:"quota"`
+	QuotaUsed    int64  `gorm:"default:0" json:"quota_used"`
+	RateLimit    int    `gorm:"default:60" json:"rate_limit"`
+	AllowedIPs   string `json:"allowed_ips"`
+	Admin        bool   `gorm:"default:false" json:"admin"`
+	Tier         string `gorm:"default:free" json:"tier"` // free, paid
+	DefaultModel string `json:"default_model"`            // model name for this tier
 }
 
 type Model struct {

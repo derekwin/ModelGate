@@ -129,7 +129,7 @@ func main() {
 func handleChatCompletions(svc *service.GatewayService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
-			Model       string              `json:"model" binding:"required"`
+			Model       string              `json:"model"`
 			Messages    []map[string]string `json:"messages" binding:"required"`
 			Stream      bool                `json:"stream"`
 			Temperature float64             `json:"temperature"`
@@ -144,6 +144,25 @@ func handleChatCompletions(svc *service.GatewayService) gin.HandlerFunc {
 			return
 		}
 
+		apiKeyModel, exists := c.Get("api_key_model")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"message": "unauthorized", "type": "authentication_error"}})
+			return
+		}
+
+		key := apiKeyModel.(*models.APIKey)
+
+		// Auto-select model based on tier if not provided
+		modelName := req.Model
+		if modelName == "" {
+			if key.DefaultModel != "" {
+				modelName = key.DefaultModel
+			} else {
+				c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": "model is required", "type": "invalid_request_error"}})
+				return
+			}
+		}
+
 		if req.Temperature < 0 || req.Temperature > 2 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": "temperature must be between 0 and 2", "type": "invalid_request_error"}})
 			return
@@ -154,14 +173,6 @@ func handleChatCompletions(svc *service.GatewayService) gin.HandlerFunc {
 			return
 		}
 
-		apiKeyModel, exists := c.Get("api_key_model")
-		if !exists {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"message": "unauthorized", "type": "authentication_error"}})
-			return
-		}
-
-		key := apiKeyModel.(*models.APIKey)
-
 		if req.MaxTokens > 0 {
 			if err := svc.CheckQuota(key.ID, int64(req.MaxTokens)); err != nil {
 				c.JSON(http.StatusForbidden, gin.H{"error": gin.H{"message": err.Error(), "type": "quota_exceeded"}})
@@ -170,7 +181,7 @@ func handleChatCompletions(svc *service.GatewayService) gin.HandlerFunc {
 		}
 
 		adapterReq := adapters.OpenAIRequest{
-			Model:       req.Model,
+			Model:       modelName,
 			Temperature: req.Temperature,
 			MaxTokens:   req.MaxTokens,
 			TopP:        req.TopP,
@@ -185,7 +196,7 @@ func handleChatCompletions(svc *service.GatewayService) gin.HandlerFunc {
 			})
 		}
 
-		resp, err := svc.ChatCompletion(c.Request.Context(), adapterReq, key.ID, req.Model)
+		resp, err := svc.ChatCompletion(c.Request.Context(), adapterReq, key.ID, modelName)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"message": err.Error(), "type": "server_error"}})
 			return
@@ -198,7 +209,7 @@ func handleChatCompletions(svc *service.GatewayService) gin.HandlerFunc {
 func handleCompletions(svc *service.GatewayService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
-			Model       string   `json:"model" binding:"required"`
+			Model       string   `json:"model"`
 			Prompt      string   `json:"prompt"`
 			Stream      bool     `json:"stream"`
 			Temperature float64  `json:"temperature"`
@@ -213,6 +224,25 @@ func handleCompletions(svc *service.GatewayService) gin.HandlerFunc {
 			return
 		}
 
+		apiKeyModel, exists := c.Get("api_key_model")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"message": "unauthorized", "type": "authentication_error"}})
+			return
+		}
+
+		key := apiKeyModel.(*models.APIKey)
+
+		// Auto-select model based on tier if not provided
+		modelName := req.Model
+		if modelName == "" {
+			if key.DefaultModel != "" {
+				modelName = key.DefaultModel
+			} else {
+				c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": "model is required", "type": "invalid_request_error"}})
+				return
+			}
+		}
+
 		if req.Temperature < 0 || req.Temperature > 2 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": "temperature must be between 0 and 2", "type": "invalid_request_error"}})
 			return
@@ -223,14 +253,6 @@ func handleCompletions(svc *service.GatewayService) gin.HandlerFunc {
 			return
 		}
 
-		apiKeyModel, exists := c.Get("api_key_model")
-		if !exists {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"message": "unauthorized", "type": "authentication_error"}})
-			return
-		}
-
-		key := apiKeyModel.(*models.APIKey)
-
 		if req.MaxTokens > 0 {
 			if err := svc.CheckQuota(key.ID, int64(req.MaxTokens)); err != nil {
 				c.JSON(http.StatusForbidden, gin.H{"error": gin.H{"message": err.Error(), "type": "quota_exceeded"}})
@@ -239,7 +261,7 @@ func handleCompletions(svc *service.GatewayService) gin.HandlerFunc {
 		}
 
 		adapterReq := adapters.OpenAIRequest{
-			Model:       req.Model,
+			Model:       modelName,
 			Prompt:      req.Prompt,
 			Stream:      req.Stream,
 			Temperature: req.Temperature,
@@ -249,7 +271,7 @@ func handleCompletions(svc *service.GatewayService) gin.HandlerFunc {
 			Stop:        req.Stop,
 		}
 
-		resp, err := svc.Completion(c.Request.Context(), adapterReq, key.ID, req.Model)
+		resp, err := svc.Completion(c.Request.Context(), adapterReq, key.ID, modelName)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"message": err.Error(), "type": "server_error"}})
 			return

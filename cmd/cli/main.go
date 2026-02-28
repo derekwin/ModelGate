@@ -69,6 +69,8 @@ func main() {
 							&cli.StringFlag{Name: "name", Aliases: []string{"n"}, Required: true},
 							&cli.Int64Flag{Name: "quota", Aliases: []string{"q"}, Value: 1000000},
 							&cli.IntFlag{Name: "rate-limit", Aliases: []string{"r"}, Value: 60},
+							&cli.StringFlag{Name: "tier", Aliases: []string{"t"}, Value: "free"},
+							&cli.StringFlag{Name: "default-model", Aliases: []string{"d"}},
 							&cli.StringFlag{Name: "allowed-ips", Aliases: []string{"i"}},
 						}),
 						Action: createKey,
@@ -87,6 +89,8 @@ func main() {
 							&cli.Int64Flag{Name: "quota", Aliases: []string{"q"}, Value: 0},
 							&cli.IntFlag{Name: "rate-limit", Aliases: []string{"r"}, Value: 0},
 							&cli.StringFlag{Name: "status", Value: ""},
+							&cli.StringFlag{Name: "tier", Value: ""},
+							&cli.StringFlag{Name: "default-model", Value: ""},
 						}),
 						Action: updateKey,
 					},
@@ -237,12 +241,17 @@ func createKey(c *cli.Context) error {
 		return fmt.Errorf("API key is required. Use --api-key or -k flag")
 	}
 
+	tier := c.String("tier")
+	defaultModel := c.String("default-model")
+
 	payload := fmt.Sprintf(`{
 		"name": "%s",
 		"quota": %d,
 		"rate_limit": %d,
+		"tier": "%s",
+		"default_model": "%s",
 		"allowed_ips": "%s"
-	}`, c.String("name"), c.Int64("quota"), c.Int("rate-limit"), c.String("allowed-ips"))
+	}`, c.String("name"), c.Int64("quota"), c.Int("rate-limit"), tier, defaultModel, c.String("allowed-ips"))
 
 	data, err := makeRequest("POST", "/admin/keys", strings.NewReader(payload))
 	if err != nil {
@@ -255,6 +264,8 @@ func createKey(c *cli.Context) error {
 	fmt.Println("API Key created successfully!")
 	fmt.Printf("Key: %s\n", result["key"])
 	fmt.Printf("Name: %s\n", result["name"])
+	fmt.Printf("Tier: %s\n", result["tier"])
+	fmt.Printf("Default Model: %s\n", result["default_model"])
 	fmt.Printf("Quota: %v\n", result["quota"])
 	return nil
 }
@@ -280,6 +291,8 @@ func updateKey(c *cli.Context) error {
 	quota := c.Int64("quota")
 	rateLimit := c.Int("rate-limit")
 	status := c.String("status")
+	tier := c.String("tier")
+	defaultModel := c.String("default-model")
 
 	updates := []string{}
 	if quota > 0 {
@@ -290,6 +303,12 @@ func updateKey(c *cli.Context) error {
 	}
 	if status != "" {
 		updates = append(updates, fmt.Sprintf(`"status": "%s"`, status))
+	}
+	if tier != "" {
+		updates = append(updates, fmt.Sprintf(`"tier": "%s"`, tier))
+	}
+	if defaultModel != "" {
+		updates = append(updates, fmt.Sprintf(`"default_model": "%s"`, defaultModel))
 	}
 
 	payload := "{" + strings.Join(updates, ",") + "}"
