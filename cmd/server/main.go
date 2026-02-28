@@ -129,14 +129,14 @@ func main() {
 func handleChatCompletions(svc *service.GatewayService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
-			Model       string              `json:"model"`
-			Messages    []map[string]string `json:"messages" binding:"required"`
-			Stream      bool                `json:"stream"`
-			Temperature float64             `json:"temperature"`
-			MaxTokens   int                 `json:"max_tokens"`
-			TopP        float64             `json:"top_p"`
-			N           int                 `json:"n"`
-			Stop        []string            `json:"stop"`
+			Model       string                   `json:"model"`
+			Messages    []map[string]interface{} `json:"messages" binding:"required"`
+			Stream      bool                     `json:"stream"`
+			Temperature float64                  `json:"temperature"`
+			MaxTokens   int                      `json:"max_tokens"`
+			TopP        float64                  `json:"top_p"`
+			N           int                      `json:"n"`
+			Stop        []string                 `json:"stop"`
 		}
 
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -190,9 +190,33 @@ func handleChatCompletions(svc *service.GatewayService) gin.HandlerFunc {
 		}
 
 		for _, msg := range req.Messages {
+			role, ok := msg["role"].(string)
+			if !ok {
+				c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": "message role must be a string", "type": "invalid_request_error"}})
+				return
+			}
+
+			var content string
+			switch v := msg["content"].(type) {
+			case string:
+				content = v
+			case []interface{}:
+				// For multimodal content, extract text from first text block
+				for _, item := range v {
+					if itemMap, ok := item.(map[string]interface{}); ok {
+						if text, ok := itemMap["text"].(string); ok {
+							content = text
+							break
+						}
+					}
+				}
+			default:
+				content = fmt.Sprintf("%v", v)
+			}
+
 			adapterReq.Messages = append(adapterReq.Messages, adapters.ChatMessage{
-				Role:    msg["role"],
-				Content: msg["content"],
+				Role:    role,
+				Content: content,
 			})
 		}
 
