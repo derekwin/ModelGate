@@ -1,88 +1,130 @@
 package database
 
 import (
-  "context"
-  "fmt"
-  "time"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"log"
+	"time"
 
-  "gorm.io/driver/sqlite"
-  "gorm.io/gorm"
-  "github.com/rs/zerolog/log"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
+
+	"modelgate/internal/models"
 )
 
-var (
-  // DB holds the global database handle
-  DB *gorm.DB
-)
+var DB *gorm.DB
 
-// GetDB returns the underlying *gorm.DB instance.
-func GetDB() *gorm.DB { return DB }
+func Init(dbPath string) error {
+	var err error
 
-// InitDatabase initializes the SQLite database and runs migrations.
-func InitDatabase(path string) (*gorm.DB, error) {
-  if DB != nil {
-    return DB, nil
-  }
+	DB, err = gorm.Open(sqlite.Open(dbPath), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Info),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to connect to database: %w", err)
+	}
 
-  db, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
-  if err != nil {
-    return nil, fmt.Errorf("database: open sqlite: %w", err)
-  }
-  DB = db
+	sqlDB, err := DB.DB()
+	if err != nil {
+		return fmt.Errorf("failed to get database instance: %w", err)
+	}
 
-  // Basic health check after connect
-  sqlDB, err := db.DB()
-  if err != nil {
-    return nil, fmt.Errorf("database: access sqlDB: %w", err)
-  }
-  ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-  defer cancel()
-  if err := sqlDB.PingContext(ctx); err != nil {
-    return nil, fmt.Errorf("database: ping: %w", err)
-  }
-  log.Info().Str("path", path).Msg("database: connected")
+	sqlDB.SetMaxIdleConns(10)
+	sqlDB.SetMaxOpenConns(100)
+	sqlDB.SetConnMaxLifetime(time.Hour)
 
-  // Run migrations and seeds (no-ops if none defined yet)
-  if err := migrateAll(db); err != nil {
-    return nil, fmt.Errorf("database: migrate: %w", err)
-  }
-  if err := seedDefaults(db); err != nil {
-    return nil, fmt.Errorf("database: seed: %w", err)
-  }
+	err = DB.AutoMigrate(
+		&models.APIKey{},
+		&models.Model{},
+		&models.UsageRecord{},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to migrate database: %w", err)
+	}
 
-  return db, nil
+	log.Println("Database initialized successfully")
+	return nil
 }
 
-// CloseDatabase gracefully closes the database connection.
-func CloseDatabase() error {
-  if DB == nil {
-    return nil
-  }
-  sqlDB, err := DB.DB()
-  if err != nil {
-    return fmt.Errorf("database: get sql db: %w", err)
-  }
-  if err := sqlDB.Close(); err != nil {
-    return fmt.Errorf("database: close: %w", err)
-  }
-  log.Info().Msg("database: closed")
-  DB = nil
-  return nil
+func Close() error {
+	if DB != nil {
+		sqlDB, err := DB.DB()
+		if err != nil {
+			return err
+		}
+		return sqlDB.Close()
+	}
+	return nil
 }
 
-// HealthCheck verifies the database is reachable.
-func HealthCheck() error {
-  if DB == nil {
-    return fmt.Errorf("database: not initialized")
-  }
-  sqlDB, err := DB.DB()
-  if err != nil {
-    return fmt.Errorf("database: get sql db: %w", err)
-  }
-  ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-  defer cancel()
-  if err := sqlDB.PingContext(ctx); err != nil {
-    return fmt.Errorf("database: ping: %w", err)
-  }
-  return nil
+func GetDB() *gorm.DB {
+	return DB
+}
+
+func EnsureAdminKey(adminAPIKey string) error {
+	var adminKey models.APIKey
+	result := DB.Where("admin = ?", true).First(&adminKey)
+
+	if adminAPIKey == "" {
+		if result.Error == nil {
+			return nil
+		}
+		apiKey := "mg_admin_" + generateRandomKey(24)
+		log.Printf("No admin API key configured, auto-generated: %s\n", apiKey)
+		log.Printf("Please save this key - it will not be shown again!\n")
+		adminAPIKey = apiKey
+	} else {
+		log.Printf("Using configured admin API key from config\n")
+	}
+
+	keyHash := hashAPIKey(adminAPIKey)
+
+	if result.Error == nil {
+		if adminKey.KeyHash != keyHash {
+			log.Printf("Updating admin API key in database\n")
+			adminKey.Key = adminAPIKey
+			adminKey.KeyHash = keyHash
+			adminKey.Name = "admin"
+			adminKey.Quota = 100000000
+			adminKey.RateLimit = 10000
+			adminKey.Admin = true
+			adminKey.BaseModel.Status = "active"
+			if err := DB.Save(&adminKey).Error; err != nil {
+				return fmt.Errorf("failed to update admin key: %w", err)
+			}
+		}
+		return nil
+	}
+
+	newKey := models.APIKey{
+		Key:       adminAPIKey,
+		KeyHash:   keyHash,
+		Name:      "admin",
+		Quota:     100000000,
+		RateLimit: 10000,
+		Admin:     true,
+	}
+	newKey.BaseModel.Status = "active"
+
+	if err := DB.Create(&newKey).Error; err != nil {
+		return fmt.Errorf("failed to create admin key: %w", err)
+	}
+
+	return nil
+}
+
+func generateRandomKey(n int) string {
+	const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	result := make([]byte, n)
+	for i := range result {
+		result[i] = letters[i%len(letters)]
+	}
+	return string(result)
+}
+
+func hashAPIKey(apiKey string) string {
+	hash := sha256.Sum256([]byte(apiKey))
+	return hex.EncodeToString(hash[:])
 }

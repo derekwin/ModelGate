@@ -1,9 +1,7 @@
 server:
   host: 0.0.0.0
   port: 8080
-  max_body_mb: 5
-  timeout_seconds: 300
-  sync_interval: 60
+  mode: release
 
 database:
   path: ./data/modelgate.db
@@ -13,13 +11,32 @@ redis:
   password: ""
   db: 0
 
-backends:
-  - type: ollama
-    url: http://localhost:11434
-    model_name: default
-  - type: vllm
-    url: http://localhost:8000
-    model_name: default
-  - type: llama.cpp
-    url: http://localhost:8080
-    model_name: default
+rate_limit:
+  rpm: 60
+  burst: 10
+
+quota:
+  default_tokens: 1000000
+
+timeout: 300s
+
+max_body_size: 5242880
+
+admin:
+  api_key: "123456"  # Set your admin API key, leave empty to auto-generate on first start
+
+adapters:
+  ollama:
+    base_url: http://localhost:11434
+  vllm:
+    base_url: http://localhost:8000
+  llamacpp:
+    base_url: http://localhost:8080
+  openai:
+    base_url: https://api.openai.com/v1
+  api3:
+    base_url: https://api.ai.gov/v1
+
+log:
+  level: info
+  format: json

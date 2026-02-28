@@ -8,7 +8,7 @@ A production-grade Go-based LLM API Gateway providing OpenAI-compatible endpoint
 - **API Key Authentication**: SHA256 hashed API keys
 - **Rate Limiting**: Redis-based RPM limiting
 - **Quota Enforcement**: Token quota per API key
-- **Admin Panel**: Web UI for key and model management
+- **Admin Panel**: Web UI & CLI for key and model management
 - **OpenAI Compatible**: Works with OpenAI SDK
 
 ## Quick Start
@@ -31,13 +31,6 @@ make build
 ./modelgate
 ```
 
-If port 8080 is in use:
-```bash
-lsof -ti :8080 | xargs kill -9
-# or
-fuser -k 8080/tcp
-```
-
 The server will start on `http://localhost:8080`
 
 **Note**: On first start, check logs for the admin API key or set it in `configs/config.yaml`
@@ -47,7 +40,7 @@ The server will start on `http://localhost:8080`
 Edit `configs/config.yaml`:
 
 | Setting | Default | Description |
-|---------|---------|--------------|
+|---------|---------|-------------|
 | server.port | 8080 | HTTP port |
 | database.path | ./data/modelgate.db | SQLite database path |
 | redis.addr | localhost:6379 | Redis address |
@@ -92,17 +85,91 @@ admin:
 - `POST /admin/models` - Create model
 - `PUT /admin/models/:id` - Update model
 - `DELETE /admin/models/:id` - Delete model
+- `POST /admin/models/sync` - Sync models from backends
+- `GET /admin/verify` - Verify admin key
+
+## Admin Management
+
+Two ways to manage API keys and models:
+
+### 1. Web Admin UI
+
+Access at `http://ip:8080/`
+
+![Login](docs/imgs/login.png)
+
+Login with admin API key:
+
+![API Keys](docs/imgs/apikeys.png)
+
+Manage models:
+
+![Models](docs/imgs/models.png)
+
+### 2. CLI Admin Tool
+
+```bash
+make build-cli
+```
+
+#### Global Options
+
+| Option | Alias | Default |
+|--------|-------|---------|
+| --server | -s | http://ip:8080 |
+| --api-key | -k | (required) |
+| --config | -c | ./configs/config.yaml |
+
+```bash
+# Via env vars
+export MODELGATE_SERVER=http://localhost:8080
+export MODELGATE_API_KEY=your_admin_key
+
+# Via flags
+./modelgate-cli -s http://localhost:8080 -k your_admin_key <command>
+```
+
+#### Commands
+
+```bash
+# API Keys
+./modelgate-cli key list
+./modelgate-cli key create -n "my-key" -q 1000000 -r 60
+./modelgate-cli key update --quota 2000000 -k your_admin_key 3    # flags before ID
+./modelgate-cli key delete 3
+
+# Models
+./modelgate-cli model list
+./modelgate-cli model create -n llama2 -b ollama -u http://localhost:11434
+./modelgate-cli model update 1 --enabled true
+./modelgate-cli model delete 1
+
+# Sync models from backends
+./modelgate-cli sync -k your_admin_key                 # sync all backends
+./modelgate-cli sync -k your_admin_key --dry-run      # preview only
+```
+
+#### Flags
+
+| Flag | Alias | Description |
+|------|-------|-------------|
+| -n | --name | Name |
+| -q | --quota | Token quota |
+| -r | --rate-limit | Requests/minute |
+| -i | --allowed-ips | Allowed IPs |
+| -b | --backend | ollama/vllm/llamacpp/openai/api3 |
+| -u | --base-url | Backend URL |
+| -e | --enabled | Enable/disable |
 
 ## Example Usage
 
 ### cURL
 
 ```bash
-# Create an API key via admin panel at http://localhost:8080/admin/
-
+# Get user API key from admin panel or CLI
 # Chat completion
 curl -X POST http://192.168.28.100:8080/v1/chat/completions \
-  -H "Authorization: Bearer 1v3O5M48cCDSWoL7WVyxjY6W8ygaxw02" \
+  -H "Authorization: Bearer your-user-api-key" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "qwen3:8b",
@@ -111,8 +178,10 @@ curl -X POST http://192.168.28.100:8080/v1/chat/completions \
 
 # List models
 curl http://localhost:8080/v1/models \
-  -H "Authorization: Bearer 1v3O5M48cCDSWoL7WVyxjY6W8ygaxw02"
+  -H "Authorization: Bearer your-user-api-key"
 ```
+
+![cURL](docs/imgs/curl.png)
 
 ### Python OpenAI SDK
 
@@ -144,61 +213,6 @@ make docker-down  # Stop Docker services
 make clean        # Clean build artifacts
 ```
 
-## CLI Admin Tool
-
-```bash
-make build-cli
-```
-
-### Global Options
-
-| Option | Alias | Default |
-|--------|-------|---------|
-| --server | -s | http://localhost:8080 |
-| --api-key | -k | (required) |
-| --config | -c | ./configs/config.yaml |
-
-```bash
-# Via env vars
-export MODELGATE_SERVER=http://localhost:8080
-export MODELGATE_API_KEY=your_admin_key
-
-# Via flags
-./modelgate-cli -s http://localhost:8080 -k your_admin_key <command>
-```
-
-### Commands
-
-```bash
-# API Keys
-./modelgate-cli key list
-./modelgate-cli key create -n "my-key" -q 1000000 -r 60
-./modelgate-cli key update --quota 2000000 -k your_admin_key 3    # flags before ID
-./modelgate-cli key delete 3
-
-# Models
-./modelgate-cli model list
-./modelgate-cli model create -n llama2 -b ollama -u http://localhost:11434
-./modelgate-cli model update 1 --enabled true
-./modelgate-cli model delete 1
-
-# Sync models from backends
-./modelgate-cli sync -k your_admin_key                 # sync all backends
-./modelgate-cli sync -k your_admin_key --dry-run      # preview only
-```
-
-### Flags
-
-| Flag | Alias | Description |
-|------|-------|-------------|
-| -n | --name | Name |
-| -q | --quota | Token quota |
-| -r | --rate-limit | Requests/minute |
-| -i | --allowed-ips | Allowed IPs |
-| -b | --backend | ollama/vllm/llamacpp/openai/api3 |
-| -u | --base-url | Backend URL |
-| -e | --enabled | Enable/disable |
-
 ## Project Structure
 
 ```
@@ -218,8 +232,9 @@ modelgate/
 │   ├── service/             # Business logic
 │   ├── usage/               # Usage tracking
 │   └── utils/               # Helpers
-├── configs/config.yaml      # Config file
-├── admin/index.html         # Admin panel
+├── configs/config.yaml       # Config file
+├── admin/index.html          # Admin panel
+├── docs/imgs/                # Documentation images
 ├── Dockerfile
 ├── docker-compose.yml
 └── Makefile

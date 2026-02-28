@@ -1,52 +1,40 @@
 package usage
 
 import (
-	"context"
-	"time"
-
-	"github.com/go-redis/redis/v8"
+	"modelgate/internal/database"
+	"modelgate/internal/models"
 )
 
-type UsageTracker struct {
-	redis   *redis.Client
-	period  time.Duration
-	limit   int64
+func RecordUsage(apiKeyID uint, model string, promptTokens, completionTokens, totalTokens int64) error {
+	record := models.UsageRecord{
+		APIKeyID:         apiKeyID,
+		Model:            model,
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+		TotalTokens:      totalTokens,
+	}
+
+	result := database.GetDB().Create(&record)
+	return result.Error
 }
 
-func NewUsageTracker(redis *redis.Client, period time.Duration, limit int64) *UsageTracker {
-	return &UsageTracker{
-		redis:   redis,
-		period:  period,
-		limit:   limit,
+func GetAPIKeyUsage(apiKeyID uint) (int64, error) {
+	var total int64
+	result := database.GetDB().Model(&models.UsageRecord{}).
+		Where("api_key_id = ?", apiKeyID).
+		Select("COALESCE(SUM(total_tokens), 0)").
+		Scan(&total)
+
+	if result.Error != nil {
+		return 0, result.Error
 	}
+	return total, nil
 }
 
-func (ut *UsageTracker) Track(ctx context.Context, userID string, tokens int64) (bool, error) {
-	currentKey := "usage:" + userID + ":current"
+func UpdateAPIKeyQuota(apiKeyID uint, tokens int64) error {
+	result := database.GetDB().Model(&models.APIKey{}).
+		Where("id = ?", apiKeyID).
+		UpdateColumn("quota_used", database.GetDB().Raw("quota_used + ?", tokens))
 
-	pipe := ut.redis.Pipeline()
-
-	pipe.IncrBy(ctx, currentKey, tokens)
-	pipe.Expire(ctx, currentKey, ut.period)
-
-	_, err := pipe.Exec(ctx)
-	if err != nil {
-		return false, err
-	}
-
-	current, err := ut.redis.Get(ctx, currentKey).Int64()
-	if err != nil {
-		return false, err
-	}
-
-	if ut.limit > 0 && current > ut.limit {
-		return false, nil
-	}
-
-	return true, nil
-}
-
-func (ut *UsageTracker) Reset(ctx context.Context, userID string) error {
-	currentKey := "usage:" + userID + ":current"
-	return ut.redis.Del(ctx, currentKey).Err()
+	return result.Error
 }

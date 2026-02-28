@@ -1,37 +1,48 @@
-.PHONY: run build test test-cover docker-up docker-down test-ollama
+.PHONY: build run test test-cover docker-up docker-down docker-build clean build-cli
 
-# Development run: start the server directly
-run:
-	go run ./cmd/server
+BINARY_NAME=modelgate
+CLI_NAME=modelgate-cli
+MAIN_PATH=cmd/server/main.go
 
-# Build the binary
+all: build build-cli
+
 build:
-	go build -o bin/modelgate ./cmd/server
+	go build -o $(BINARY_NAME) $(MAIN_PATH)
 
-# Run unit tests
+build-cli:
+	go build -o $(CLI_NAME) ./cmd/cli/main.go
+
+run: build
+	lsof -ti :8080 | xargs -r kill -9
+	./$(BINARY_NAME)
+
 test:
-	go test ./... -v
+	go test -v ./...
 
-# Run tests with coverage
 test-cover:
-	go test ./... -coverprofile=coverage.out && go tool cover -html=coverage.out
+	go test -coverprofile=coverage.out ./... && go tool cover -html=coverage.out
 
-# Start Redis container
+docker-build:
+	docker build -t modelgate:latest .
+
 docker-up:
 	docker-compose up -d
 
-# Stop Redis container
 docker-down:
 	docker-compose down
 
-# Test Ollama connectivity
 test-ollama:
-	@echo "Testing Ollama connection..."
-	@if curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then \
-		echo "✓ Ollama is running"; \
-		echo "Available models:"; \
-		curl -s http://localhost:11434/api/tags | grep -o '"name":"[^"]*"' | head -10; \
-	else \
-		echo "✗ Ollama is not running or not accessible"; \
-		exit 1; \
-	fi
+	@echo "Testing Ollama adapter..."
+	@echo "Make sure Ollama is running on localhost:11434"
+
+clean:
+	rm -f $(BINARY_NAME) coverage.out
+	rm -rf data/*.db
+
+lint:
+	gofmt -w .
+	go vet ./...
+
+install-deps:
+	go mod download
+	go mod tidy

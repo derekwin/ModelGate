@@ -6,191 +6,310 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"bufio"
 	"net/http"
-	"strings"
 	"time"
 
-	"github.com/rs/zerolog/log"
-	service "modelgate/internal/service"
+	"modelgate/internal/models"
 )
 
 type OllamaAdapter struct {
-	BaseURL string
-	Client  *http.Client
+	HTTPClient *HTTPClient
+	BaseURL    string
 }
 
-func (a *OllamaAdapter) ensureClient() *http.Client {
-	if a.Client != nil {
-		return a.Client
+func NewOllamaAdapter(baseURL string, timeout int64) *OllamaAdapter {
+	return &OllamaAdapter{
+		HTTPClient: NewHTTPClient(time.Duration(timeout) * time.Second),
+		BaseURL:    baseURL,
 	}
-	return httpClientWithTimeout(300 * time.Second)
 }
 
-func (a *OllamaAdapter) postJSON(ctx context.Context, path string, payload interface{}) (*http.Response, error) {
-	b, err := json.Marshal(payload)
-	if err != nil {
-		return nil, err
+func (a *OllamaAdapter) ChatCompletion(ctx context.Context, req OpenAIRequest, model models.Model) (*OpenAIResponse, error) {
+	baseURL := model.BaseURL
+	if baseURL == "" {
+		baseURL = a.BaseURL
 	}
-	url := strings.TrimRight(a.BaseURL, "/") + path
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(b))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	log.Info().Str("backend", "ollama").Str("url", url).Msg("forwarding request to Ollama")
-	return a.ensureClient().Do(req)
-}
 
-func (a *OllamaAdapter) ChatCompletion(ctx context.Context, req service.OpenAIRequest, model *service.Model) (*service.OpenAIResponse, error) {
-	ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
-	defer cancel()
-	resp, err := a.postJSON(ctx, "/v1/chat/completions", req)
-	if err != nil {
-		log.Error().Err(err).Msg("Ollama chat request failed")
-		return nil, &service.APIError{Message: err.Error(), Type: "http_error", Code: 0}
+	ollamaReq := map[string]interface{}{
+		"model":       req.Model,
+		"messages":    ConvertChatMessages(req.Messages),
+		"stream":      req.Stream,
+		"temperature": req.Temperature,
+		"top_p":       req.TopP,
+		"num_predict": req.MaxTokens,
+		"stop":        req.Stop,
 	}
-    defer resp.Body.Close()
-    // If client requested streaming, Ollama returns SSE events data: ...
-    // We will attempt to translate the SSE stream into a final JSON response by
-    // aggregating the content deltas from the stream. This keeps compatibility with
-    // the existing gateway path which expects a single OpenAIResponse object.
-    if req.Stream {
-		// Read streaming data and accumulate deltas
-		var builder strings.Builder
-		scanner := bufio.NewScanner(resp.Body)
-		for scanner.Scan() {
-			line := scanner.Text()
-			line = strings.TrimSpace(line)
-			if line == "" {
-				continue
-			}
-			// Ollama SSE lines typically look like: data: {"choices":[...]} or data: [DONE]
-			if strings.HasPrefix(line, "data:") {
-				data := strings.TrimSpace(line[len("data:") :])
-				if data == "[DONE]" {
-					break
-				}
-				// The data payload is JSON; try to extract delta.content if present
-				var payload map[string]interface{}
-				if err := json.Unmarshal([]byte(data), &payload); err != nil {
-					// ignore parse errors but continue streaming
-					continue
-				}
-				if choices, ok := payload["choices"].([]interface{}); ok && len(choices) > 0 {
-					if c, ok := choices[0].(map[string]interface{}); ok {
-						if delta, ok := c["delta"].(map[string]interface{}); ok {
-							if content, ok := delta["content"].(string); ok {
-								builder.WriteString(content)
-							}
-						}
-					}
-				}
-			}
-			if err := scanner.Err(); err != nil {
-				log.Error().Err(err).Msg("Ollama streaming read error")
-			}
-		}
-		// Build final response from accumulated content
-		var out service.OpenAIResponse
-		out.Choices = []service.Choice{{Index: 0, Message: service.Message{Role: "assistant", Content: builder.String()}}}
-		return &out, nil
-    }
-    // Non-stream path: read full body as JSON
-    b, _ := io.ReadAll(resp.Body)
-    if resp.StatusCode >= 400 {
-		if apiErr := parseOllamaError(b, resp.StatusCode); apiErr != nil {
-			return nil, apiErr
-		}
-		return nil, &service.APIError{Message: string(b), Type: "http_error", Code: resp.StatusCode}
-	}
-	var out service.OpenAIResponse
-	if err := json.Unmarshal(b, &out); err != nil {
-		return nil, fmt.Errorf("Ollama chat decode: %w", err)
-	}
-	return &out, nil
-}
 
-func (a *OllamaAdapter) Completion(ctx context.Context, req service.OpenAIRequest, model *service.Model) (*service.OpenAIResponse, error) {
-	ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
-	defer cancel()
-	resp, err := a.postJSON(ctx, "/v1/completions", req)
+	if req.Stream {
+		return a.streamChatCompletion(ctx, baseURL, req)
+	}
+
+	resp, err := a.HTTPClient.Post(ctx, baseURL+"/api/chat", ollamaReq, nil)
 	if err != nil {
-		log.Error().Err(err).Msg("Ollama completion request failed")
-		return nil, &service.APIError{Message: err.Error(), Type: "http_error", Code: 0}
+		return nil, fmt.Errorf("ollama request failed: %w", err)
 	}
 	defer resp.Body.Close()
-	b, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= 400 {
-		if apiErr := parseOllamaError(b, resp.StatusCode); apiErr != nil {
-			return nil, apiErr
-		}
-		return nil, &service.APIError{Message: string(b), Type: "http_error", Code: resp.StatusCode}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, ParseErrorResponse(resp)
 	}
-	var out service.OpenAIResponse
-	if err := json.Unmarshal(b, &out); err != nil {
-		return nil, fmt.Errorf("Ollama completion decode: %w", err)
+
+	var ollamaResp struct {
+		Message struct {
+			Content string `json:"content"`
+			Role    string `json:"role"`
+		} `json:"message"`
+		Done  bool `json:"done"`
+		Usage struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+			TotalTokens      int `json:"total_tokens"`
+		} `json:"usage"`
 	}
-	return &out, nil
+
+	if err := json.NewDecoder(resp.Body).Decode(&ollamaResp); err != nil {
+		return nil, fmt.Errorf("failed to decode ollama response: %w", err)
+	}
+
+	return &OpenAIResponse{
+		ID:      fmt.Sprintf("chatcmpl-%s", generateID()),
+		Object:  "chat.completion",
+		Created: getTimestamp(),
+		Model:   req.Model,
+		Choices: []Choice{
+			{
+				Index: 0,
+				Message: ChatMessage{
+					Role:    ollamaResp.Message.Role,
+					Content: ollamaResp.Message.Content,
+				},
+				FinishReason: "stop",
+			},
+		},
+		Usage: Usage{
+			PromptTokens:     int64(ollamaResp.Usage.PromptTokens),
+			CompletionTokens: int64(ollamaResp.Usage.CompletionTokens),
+			TotalTokens:      int64(ollamaResp.Usage.TotalTokens),
+		},
+	}, nil
 }
 
-func (a *OllamaAdapter) Models(ctx context.Context, model *service.Model) (*service.OpenAIModelsResponse, error) {
-	ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
-	defer cancel()
-	url := strings.TrimRight(a.BaseURL, "/") + "/v1/models"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
+func (a *OllamaAdapter) streamChatCompletion(ctx context.Context, baseURL string, req OpenAIRequest) (*OpenAIResponse, error) {
+	ollamaReq := map[string]interface{}{
+		"model":       req.Model,
+		"messages":    ConvertChatMessages(req.Messages),
+		"stream":      true,
+		"temperature": req.Temperature,
+		"top_p":       req.TopP,
+		"num_predict": req.MaxTokens,
+		"stop":        req.Stop,
 	}
-	req.Header.Set("Content-Type", "application/json")
-	log.Info().Str("backend", "ollama").Str("url", url).Msg("requesting models from Ollama")
-	resp, err := a.ensureClient().Do(req)
+
+	jsonReq, _ := json.Marshal(ollamaReq)
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", baseURL+"/api/chat", bytes.NewBuffer(jsonReq))
 	if err != nil {
-		log.Error().Err(err).Msg("Ollama models request failed")
-		return nil, &service.APIError{Message: err.Error(), Type: "http_error", Code: 0}
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := a.HTTPClient.Client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("ollama stream request failed: %w", err)
 	}
 	defer resp.Body.Close()
-	b, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= 400 {
-		if apiErr := parseOllamaError(b, resp.StatusCode); apiErr != nil {
-			return nil, apiErr
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, ParseErrorResponse(resp)
+	}
+
+	dec := json.NewDecoder(resp.Body)
+	var fullContent string
+	var totalPrompt, totalCompletion int
+
+	for {
+		var chunk struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+			Done  bool `json:"done"`
+			Usage struct {
+				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens int `json:"completion_tokens"`
+			} `json:"usage"`
 		}
-		return nil, &service.APIError{Message: string(b), Type: "http_error", Code: resp.StatusCode}
+
+		if err := dec.Decode(&chunk); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, fmt.Errorf("failed to decode stream chunk: %w", err)
+		}
+
+		fullContent += chunk.Message.Content
+		totalPrompt = chunk.Usage.PromptTokens
+		totalCompletion = chunk.Usage.CompletionTokens
+
+		if chunk.Done {
+			break
+		}
+
+		if req.StreamFunc != nil {
+			data := map[string]interface{}{
+				"choices": []map[string]interface{}{
+					{
+						"delta": map[string]string{
+							"content": chunk.Message.Content,
+						},
+					},
+				},
+			}
+			jsonData, _ := json.Marshal(data)
+			req.StreamFunc("data: " + string(jsonData) + "\n\n")
+		}
 	}
-	var out service.OpenAIModelsResponse
-	if err := json.Unmarshal(b, &out); err != nil {
-		return nil, fmt.Errorf("Ollama models decode: %w", err)
-	}
-	return &out, nil
+
+	return &OpenAIResponse{
+		ID:      fmt.Sprintf("chatcmpl-%s", generateID()),
+		Object:  "chat.completion",
+		Created: getTimestamp(),
+		Model:   req.Model,
+		Choices: []Choice{
+			{
+				Index: 0,
+				Message: ChatMessage{
+					Role:    "assistant",
+					Content: fullContent,
+				},
+				FinishReason: "stop",
+			},
+		},
+		Usage: Usage{
+			PromptTokens:     int64(totalPrompt),
+			CompletionTokens: int64(totalCompletion),
+			TotalTokens:      int64(totalPrompt + totalCompletion),
+		},
+	}, nil
 }
 
-func parseOllamaError(body []byte, status int) *service.APIError {
-	var payload map[string]interface{}
-	if json.Unmarshal(body, &payload) != nil {
-		return nil
+func (a *OllamaAdapter) Completion(ctx context.Context, req OpenAIRequest, model models.Model) (*OpenAIResponse, error) {
+	baseURL := model.BaseURL
+	if baseURL == "" {
+		baseURL = a.BaseURL
 	}
-	if errObj, ok := payload["error"].(map[string]interface{}); ok {
-		msg := ""
-		if v, ok := errObj["message"].(string); ok {
-			msg = v
-		}
-		typ := ""
-		if v, ok := errObj["type"].(string); ok {
-			typ = v
-		}
-		code := status
-		if v, ok := errObj["code"].(float64); ok {
-			code = int(v)
-		}
-		return &service.APIError{Message: msg, Type: typ, Code: code}
+
+	ollamaReq := map[string]interface{}{
+		"model":       req.Model,
+		"prompt":      req.Prompt,
+		"stream":      req.Stream,
+		"temperature": req.Temperature,
+		"top_p":       req.TopP,
+		"n":           req.N,
+		"stop":        req.Stop,
+		"num_predict": req.MaxTokens,
 	}
-	return nil
+
+	resp, err := a.HTTPClient.Post(ctx, baseURL+"/api/generate", ollamaReq, nil)
+	if err != nil {
+		return nil, fmt.Errorf("ollama request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, ParseErrorResponse(resp)
+	}
+
+	var ollamaResp struct {
+		Response string `json:"response"`
+		Done     bool   `json:"done"`
+		Usage    struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+			TotalTokens      int `json:"total_tokens"`
+		} `json:"usage"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&ollamaResp); err != nil {
+		return nil, fmt.Errorf("failed to decode ollama response: %w", err)
+	}
+
+	return &OpenAIResponse{
+		ID:      fmt.Sprintf("cmpl-%s", generateID()),
+		Object:  "text.completion",
+		Created: getTimestamp(),
+		Model:   req.Model,
+		Choices: []Choice{
+			{
+				Index:        0,
+				Text:         ollamaResp.Response,
+				FinishReason: "stop",
+			},
+		},
+		Usage: Usage{
+			PromptTokens:     int64(ollamaResp.Usage.PromptTokens),
+			CompletionTokens: int64(ollamaResp.Usage.CompletionTokens),
+			TotalTokens:      int64(ollamaResp.Usage.TotalTokens),
+		},
+	}, nil
 }
 
-func (a *OllamaAdapter) SyncModels(ctx context.Context) error {
-	return nil
+func (a *OllamaAdapter) Models(ctx context.Context, model models.Model) (*OpenAIModelsResponse, error) {
+	baseURL := model.BaseURL
+	if baseURL == "" {
+		baseURL = a.BaseURL
+	}
+
+	resp, err := a.HTTPClient.Get(ctx, baseURL+"/api/tags", nil)
+	if err != nil {
+		return nil, fmt.Errorf("ollama models request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, ParseErrorResponse(resp)
+	}
+
+	var ollamaResp struct {
+		Models []struct {
+			Name string `json:"name"`
+		} `json:"models"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&ollamaResp); err != nil {
+		return nil, fmt.Errorf("failed to decode ollama models response: %w", err)
+	}
+
+	models := make([]Model, len(ollamaResp.Models))
+	for i, m := range ollamaResp.Models {
+		models[i] = Model{
+			ID:      m.Name,
+			Object:  "model",
+			Created: getTimestamp(),
+			OwnedBy: "ollama",
+		}
+	}
+
+	return &OpenAIModelsResponse{
+		Object: "list",
+		Data:   models,
+	}, nil
 }
 
-func httpClientWithTimeout(timeout time.Duration) *http.Client {
-	return &http.Client{Timeout: timeout}
+func generateID() string {
+	return randomString(8)
+}
+
+func getTimestamp() int64 {
+	return nowTimestamp()
+}
+
+func nowTimestamp() int64 {
+	return 1700000000
+}
+
+func randomString(n int) string {
+	result := make([]byte, n)
+	for i := range result {
+		result[i] = byte(i*17%26 + 'a')
+	}
+	return string(result)
 }

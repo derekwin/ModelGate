@@ -1,16 +1,20 @@
 package admin
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
 	"modelgate/internal/auth"
+	"modelgate/internal/config"
 	"modelgate/internal/database"
 	"modelgate/internal/models"
 )
 
 func RegisterRoutes(admin *gin.RouterGroup) {
+	admin.GET("/verify", verifyAdmin)
+
 	admin.Use(requireAdmin())
 	admin.GET("/keys", listAPIKeys)
 	admin.POST("/keys", createAPIKey)
@@ -21,6 +25,16 @@ func RegisterRoutes(admin *gin.RouterGroup) {
 	admin.POST("/models", createModel)
 	admin.PUT("/models/:id", updateModel)
 	admin.DELETE("/models/:id", deleteModel)
+	admin.POST("/models/sync", syncModels)
+}
+
+func verifyAdmin(c *gin.Context) {
+	apiKeyModel, _ := c.Get("api_key_model")
+	key := apiKeyModel.(*models.APIKey)
+	c.JSON(http.StatusOK, gin.H{
+		"admin": key.Admin,
+		"name":  key.Name,
+	})
 }
 
 func requireAdmin() gin.HandlerFunc {
@@ -282,4 +296,131 @@ func deleteModel(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "Model deleted"})
+}
+
+func syncModels(c *gin.Context) {
+	cfg := config.Get()
+	adapters := cfg.Adapters
+
+	type backend struct {
+		name    string
+		baseURL string
+	}
+
+	backends := []backend{
+		{"ollama", adapters.Ollama.BaseURL},
+		{"vllm", adapters.VLLM.BaseURL},
+		{"llamacpp", adapters.LlamaCPP.BaseURL},
+		{"openai", adapters.OpenAI.BaseURL},
+		{"api3", adapters.API3.BaseURL},
+	}
+
+	type modelInfo struct {
+		Name    string `json:"name"`
+		Backend string `json:"backend_type"`
+		BaseURL string `json:"base_url"`
+		Enabled bool   `json:"enabled"`
+	}
+
+	var created []modelInfo
+
+	for _, b := range backends {
+		if b.baseURL == "" {
+			continue
+		}
+
+		modelNames, err := fetchBackendModels(b.name, b.baseURL)
+		if err != nil {
+			continue
+		}
+
+		for _, name := range modelNames {
+			var existing models.Model
+			result := database.GetDB().Where("name = ? AND backend_type = ?", name, b.name).First(&existing)
+			if result.Error == nil {
+				continue
+			}
+
+			newModel := models.Model{
+				Name:        name,
+				BackendType: b.name,
+				BaseURL:     b.baseURL,
+				Enabled:     true,
+			}
+			newModel.Status = "active"
+
+			if err := database.GetDB().Create(&newModel).Error; err != nil {
+				continue
+			}
+			created = append(created, modelInfo{
+				Name:    name,
+				Backend: b.name,
+				BaseURL: b.baseURL,
+				Enabled: true,
+			})
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Sync completed",
+		"created": created,
+	})
+}
+
+func fetchBackendModels(backend, baseURL string) ([]string, error) {
+	client := &http.Client{}
+	var url string
+
+	switch backend {
+	case "ollama":
+		url = baseURL + "/api/tags"
+	case "vllm", "openai", "llamacpp", "api3":
+		url = baseURL + "/v1/models"
+	default:
+		return nil, nil
+	}
+
+	req, _ := http.NewRequest("GET", url, nil)
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, nil
+	}
+
+	var data map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, err
+	}
+
+	if backend == "ollama" {
+		if models, ok := data["models"].([]interface{}); ok {
+			result := make([]string, 0, len(models))
+			for _, m := range models {
+				if m, ok := m.(map[string]interface{}); ok {
+					if name, ok := m["name"].(string); ok {
+						result = append(result, name)
+					}
+				}
+			}
+			return result, nil
+		}
+	} else {
+		if dataList, ok := data["data"].([]interface{}); ok {
+			result := make([]string, 0, len(dataList))
+			for _, m := range dataList {
+				if m, ok := m.(map[string]interface{}); ok {
+					if id, ok := m["id"].(string); ok {
+						result = append(result, id)
+					}
+				}
+			}
+			return result, nil
+		}
+	}
+
+	return nil, nil
 }

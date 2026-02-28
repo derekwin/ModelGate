@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -11,178 +11,273 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/go-redis/redis/v8"
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
-	"gorm.io/gorm"
+
 	"modelgate/internal/adapters"
+	"modelgate/internal/admin"
 	"modelgate/internal/config"
 	"modelgate/internal/database"
+	"modelgate/internal/limiter"
 	"modelgate/internal/middleware"
 	"modelgate/internal/models"
 	"modelgate/internal/service"
 )
 
+var logger zerolog.Logger
+
 func main() {
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout})
-
-	// 解析命令行参数
-	configFile := flag.String("c", "configs/config.yaml", "配置文件路径")
-	flag.Parse()
-
-	// 加载配置文件
-	if err := config.LoadConfig(*configFile); err != nil {
-		log.Fatal().Err(err).Str("config", *configFile).Msg("failed to load config")
-	}
-
-	log.Info().Str("config", *configFile).Msg("config loaded")
-
-	db, err := database.InitDatabase(config.Get().Database.Path)
+	cfg, err := config.Load("configs/config.yaml")
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to init database")
-	}
-	defer database.CloseDatabase()
-
-	if err := db.AutoMigrate(&models.User{}, &models.APIKey{}, &models.Model{}); err != nil {
-		log.Fatal().Err(err).Msg("failed to migrate database")
+		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	rdb := initRedis()
-	ctx := context.Background()
-	if err := rdb.Ping(ctx).Err(); err != nil {
-		log.Warn().Err(err).Msg("Redis not available, rate limiting disabled")
+	logger = zerolog.New(os.Stdout).With().Timestamp().Logger()
+	if cfg.Log.Format == "json" {
+		logger = zerolog.New(os.Stdout).With().Timestamp().Logger()
+	} else {
+		logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout}).With().Timestamp().Logger()
 	}
-	defer rdb.Close()
 
-	gateway := setupRouter(db, ctx)
+	level, _ := zerolog.ParseLevel(cfg.Log.Level)
+	logger.Level(level)
 
-	if err := config.WatchConfigChanges(func(c *config.Config) {
-		log.Info().Msg("config changed, reloading gateway backends")
-		if err := reloadGatewayBackends(gateway, ctx); err != nil {
-			log.Error().Err(err).Msg("failed to reload gateway backends")
+	logger.Info().Msg("Starting ModelGate...")
+
+	err = database.Init(cfg.Database.Path)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("Failed to initialize database")
+	}
+	defer database.Close()
+
+	if err := database.EnsureAdminKey(cfg.Admin.APIKey); err != nil {
+		logger.Warn().Err(err).Msg("Failed to ensure admin key")
+	}
+
+	rateLimiter, err := limiter.NewRateLimiter(
+		cfg.Redis.Addr,
+		cfg.Redis.Password,
+		cfg.Redis.DB,
+		cfg.RateLimit.RPM,
+		cfg.RateLimit.Burst,
+	)
+	if err != nil {
+		logger.Warn().Err(err).Msg("Failed to initialize rate limiter, running without rate limiting")
+	}
+	defer rateLimiter.Close()
+
+	adapterFactory := adapters.NewAdapterFactory(cfg)
+	gatewayService := service.NewGatewayService(adapterFactory)
+
+	gin.SetMode(cfg.Server.Mode)
+	r := gin.Default()
+
+	r.Use(middleware.Logger())
+	r.Use(middleware.BodySizeLimit(cfg.MaxBodySize))
+
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+
+	authMiddleware := middleware.NewAuthMiddleware(rateLimiter)
+
+	v1 := r.Group("/v1")
+	v1.Use(authMiddleware.Authenticate())
+	v1.Use(authMiddleware.RateLimit())
+	{
+		v1.POST("/chat/completions", handleChatCompletions(gatewayService))
+		v1.POST("/completions", handleCompletions(gatewayService))
+		v1.GET("/models", handleListModels(gatewayService))
+	}
+
+	adminGroup := r.Group("/admin")
+	adminGroup.Use(authMiddleware.Authenticate())
+	admin.RegisterRoutes(adminGroup)
+
+	r.Static("/static/", "./admin")
+	r.GET("/", func(c *gin.Context) {
+		c.File("./admin/index.html")
+	})
+
+	srv := &http.Server{
+		Addr:    fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
+		Handler: r,
+	}
+
+	go func() {
+		logger.Info().Int("port", cfg.Server.Port).Msg("Server starting")
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Fatal().Err(err).Msg("Server failed")
 		}
-	}); err != nil {
-		log.Error().Err(err).Msg("failed to start config watcher")
-	}
+	}()
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	ctxShutdown, cancel := context.WithTimeout(context.Background(), time.Duration(config.Get().GetServerTimeoutSeconds())*time.Second)
+	logger.Info().Msg("Shutting down server...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := gateway.Shutdown(ctxShutdown); err != nil {
-		log.Error().Err(err).Msg("server shutdown error")
+	if err := srv.Shutdown(ctx); err != nil {
+		logger.Fatal().Err(err).Msg("Server forced to shutdown")
 	}
 
-	log.Info().Str("host", config.Get().GetServerHost()).Int("port", config.Get().GetServerPort()).Msg("server exited gracefully")
+	logger.Info().Msg("Server exited")
 }
 
-func initRedis() *redis.Client {
-	return redis.NewClient(&redis.Options{
-		Addr:     config.Get().Redis.Addr,
-		Password: config.Get().Redis.Password,
-		DB:       config.Get().Redis.DB,
-	})
-}
-
-func setupRouter(db *gorm.DB, ctx context.Context) *GatewayWrapper {
-	gin.SetMode(gin.ReleaseMode)
-	router := gin.New()
-
-	router.Use(logToContext())
-	router.Use(gin.Recovery())
-	router.Use(middleware.RequestLogger())
-	router.Use(middleware.BodySizeLimiter(config.Get().GetMaxBodyMB()))
-
-	backendConfig := make(map[string]service.BackendConfig)
-	for _, bc := range config.Get().GetBackends() {
-		backendConfig[bc.Type] = service.BackendConfig{
-			Type:      bc.Type,
-			URL:       bc.URL,
-			ModelName: bc.ModelName,
-		}
-	}
-
-	adapter := &adapters.OllamaAdapter{BaseURL: "http://localhost:11434"}
-
-	gateway := service.NewGatewayService(map[string]service.Adapter{
-		"ollama": adapter,
-	}, backendConfig)
-
-	if err := gateway.SyncModels(ctx); err != nil {
-		log.Error().Err(err).Msg("failed to sync models on startup")
-	}
-
-	router.Use(func(c *gin.Context) {
-		c.Set("gateway", gateway)
-		c.Next()
-	})
-
-	router.Use(middleware.AuthMiddleware())
-	router.Use(middleware.RateLimiterMiddleware())
-
-	service.Route(router, gateway)
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/admin/", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "admin/index.html")
-	})
-	mux.HandleFunc("/admin", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/admin/", http.StatusMovedPermanently)
-	})
-	mux.Handle("/v1/", router)
-
-	addr := fmt.Sprintf("%s:%d", config.Get().GetServerHost(), config.Get().GetServerPort())
-	srv := &http.Server{Addr: addr, Handler: mux}
-
-	go func() {
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatal().Err(err).Msg("server error")
-		}
-	}()
-
-	return &GatewayWrapper{srv: srv, gateway: gateway}
-}
-
-func reloadGatewayBackends(gateway *GatewayWrapper, ctx context.Context) error {
-	backendConfig := make(map[string]service.BackendConfig)
-	for _, bc := range config.Get().GetBackends() {
-		backendConfig[bc.Type] = service.BackendConfig{
-			Type:      bc.Type,
-			URL:       bc.URL,
-			ModelName: bc.ModelName,
-		}
-	}
-
-	gateway.gateway.SetBackendConfig(backendConfig)
-
-	if err := gateway.gateway.SyncModels(ctx); err != nil {
-		log.Error().Err(err).Msg("failed to sync models after config reload")
-		return err
-	}
-
-	log.Info().Msg("gateway backends reloaded successfully")
-	return nil
-}
-
-type GatewayWrapper struct {
-	srv     *http.Server
-	gateway *service.GatewayService
-}
-
-func (gw *GatewayWrapper) Shutdown(ctx context.Context) error {
-	return gw.srv.Shutdown(ctx)
-}
-
-func logToContext() gin.HandlerFunc {
+func handleChatCompletions(svc *service.GatewayService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		ctxLogger := log.Ctx(c.Request.Context()).With().
-			Str("request_id", c.GetString("X-Request-ID")).
-			Logger()
-		c.Set("logger", ctxLogger)
-		c.Request = c.Request.WithContext(ctxLogger.WithContext(c.Request.Context()))
-		c.Next()
+		var req struct {
+			Model       string              `json:"model" binding:"required"`
+			Messages    []map[string]string `json:"messages" binding:"required"`
+			Stream      bool                `json:"stream"`
+			Temperature float64             `json:"temperature"`
+			MaxTokens   int                 `json:"max_tokens"`
+			TopP        float64             `json:"top_p"`
+			N           int                 `json:"n"`
+			Stop        []string            `json:"stop"`
+		}
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": err.Error(), "type": "invalid_request_error"}})
+			return
+		}
+
+		if req.Temperature < 0 || req.Temperature > 2 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": "temperature must be between 0 and 2", "type": "invalid_request_error"}})
+			return
+		}
+
+		if req.MaxTokens < 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": "max_tokens must be positive", "type": "invalid_request_error"}})
+			return
+		}
+
+		apiKeyModel, exists := c.Get("api_key_model")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"message": "unauthorized", "type": "authentication_error"}})
+			return
+		}
+
+		key := apiKeyModel.(*models.APIKey)
+
+		if req.MaxTokens > 0 {
+			if err := svc.CheckQuota(key.ID, int64(req.MaxTokens)); err != nil {
+				c.JSON(http.StatusForbidden, gin.H{"error": gin.H{"message": err.Error(), "type": "quota_exceeded"}})
+				return
+			}
+		}
+
+		adapterReq := adapters.OpenAIRequest{
+			Model:       req.Model,
+			Temperature: req.Temperature,
+			MaxTokens:   req.MaxTokens,
+			TopP:        req.TopP,
+			N:           req.N,
+			Stop:        req.Stop,
+		}
+
+		for _, msg := range req.Messages {
+			adapterReq.Messages = append(adapterReq.Messages, adapters.ChatMessage{
+				Role:    msg["role"],
+				Content: msg["content"],
+			})
+		}
+
+		resp, err := svc.ChatCompletion(c.Request.Context(), adapterReq, key.ID, req.Model)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"message": err.Error(), "type": "server_error"}})
+			return
+		}
+
+		c.JSON(http.StatusOK, resp)
+	}
+}
+
+func handleCompletions(svc *service.GatewayService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Model       string   `json:"model" binding:"required"`
+			Prompt      string   `json:"prompt"`
+			Stream      bool     `json:"stream"`
+			Temperature float64  `json:"temperature"`
+			MaxTokens   int      `json:"max_tokens"`
+			TopP        float64  `json:"top_p"`
+			N           int      `json:"n"`
+			Stop        []string `json:"stop"`
+		}
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": err.Error(), "type": "invalid_request_error"}})
+			return
+		}
+
+		if req.Temperature < 0 || req.Temperature > 2 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": "temperature must be between 0 and 2", "type": "invalid_request_error"}})
+			return
+		}
+
+		if req.MaxTokens < 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": "max_tokens must be positive", "type": "invalid_request_error"}})
+			return
+		}
+
+		apiKeyModel, exists := c.Get("api_key_model")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"message": "unauthorized", "type": "authentication_error"}})
+			return
+		}
+
+		key := apiKeyModel.(*models.APIKey)
+
+		if req.MaxTokens > 0 {
+			if err := svc.CheckQuota(key.ID, int64(req.MaxTokens)); err != nil {
+				c.JSON(http.StatusForbidden, gin.H{"error": gin.H{"message": err.Error(), "type": "quota_exceeded"}})
+				return
+			}
+		}
+
+		adapterReq := adapters.OpenAIRequest{
+			Model:       req.Model,
+			Prompt:      req.Prompt,
+			Stream:      req.Stream,
+			Temperature: req.Temperature,
+			MaxTokens:   req.MaxTokens,
+			TopP:        req.TopP,
+			N:           req.N,
+			Stop:        req.Stop,
+		}
+
+		resp, err := svc.Completion(c.Request.Context(), adapterReq, key.ID, req.Model)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"message": err.Error(), "type": "server_error"}})
+			return
+		}
+
+		c.JSON(http.StatusOK, resp)
+	}
+}
+
+func handleListModels(svc *service.GatewayService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		modelName := c.Query("model")
+		if modelName == "" {
+			models, err := svc.ListModels()
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"data": models})
+			return
+		}
+
+		resp, err := svc.ListBackendModels(c.Request.Context(), modelName)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, resp)
 	}
 }

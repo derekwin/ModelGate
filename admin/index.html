@@ -1,526 +1,676 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ModelGate 管理后台</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus@2.4.4/dist/index.css">
+    <title>ModelGate Admin Panel</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
-        #app { height: 100vh; }
-        .sidebar { width: 240px; height: 100vh; background: #304156; position: fixed; left: 0; top: 0; }
-        .sidebar-logo { padding: 20px; color: white; font-size: 20px; font-weight: bold; text-align: center; }
-        .sidebar-menu { padding: 20px 0; }
-        .sidebar-menu .el-menu-item { height: 50px; line-height: 50px; padding-left: 20px !important; }
-        .sidebar-menu .el-menu-item.is-active { background: #00182e !important; }
-        .main-content { margin-left: 240px; height: 100vh; overflow-y: auto; background: #f0f2f5; }
-        .header { background: white; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px; }
-        .header-title { font-size: 24px; font-weight: bold; color: #333; }
-        .content { padding: 20px; }
-        .card { background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-        .card-title { font-size: 18px; font-weight: bold; margin-bottom: 15px; color: #333; }
-        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 20px; }
-        .stat-card { background: white; border-radius: 8px; padding: 20px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-        .stat-value { font-size: 28px; font-weight: bold; color: #409eff; margin-bottom: 10px; }
-        .stat-label { color: #666; font-size: 14px; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+        }
+
+        .header {
+            background: #1a1a2e;
+            color: white;
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            font-size: 1.5rem;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .tab {
+            padding: 0.75rem 1.5rem;
+            background: white;
+            border: none;
+            border-radius: 8px 8px 0 0;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: background 0.2s;
+        }
+
+        .tab.active {
+            background: #1a1a2e;
+            color: white;
+        }
+
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .card-header h2 {
+            font-size: 1.25rem;
+        }
+
+        .btn {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.875rem;
+            transition: background 0.2s;
+        }
+
+        .btn-primary {
+            background: #4f46e5;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #4338ca;
+        }
+
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        th {
+            font-weight: 600;
+            background: #f9fafb;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        .badge-active {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .badge-inactive {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .badge-admin {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+        }
+
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 1rem;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            width: 100%;
+            max-width: 500px;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: flex-end;
+            margin-top: 1.5rem;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .login-screen {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background: #f5f5f5;
+        }
+
+        .login-box {
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .login-box h2 {
+            margin-bottom: 1.5rem;
+            text-align: center;
+        }
+
+        .login-box .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .user-info span {
+            font-size: 0.875rem;
+        }
+
+        .btn-success {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #059669;
+        }
+
+        .btn-sm {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.75rem;
+        }
+
+        .nav-tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .nav-tab {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.75rem 1.25rem;
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.95rem;
+            font-weight: 500;
+            color: #6b7280;
+            transition: all 0.2s;
+        }
+
+        .nav-tab:hover {
+            background: #f9fafb;
+            border-color: #d1d5db;
+        }
+
+        .nav-tab.active {
+            background: #4f46e5;
+            color: white;
+            border-color: #4f46e5;
+        }
+
+        .nav-tab svg {
+            flex-shrink: 0;
+        }
     </style>
 </head>
 <body>
-    <div id="app">
-        <div class="sidebar">
-            <div class="sidebar-logo">ModelGate 管理</div>
-            <el-menu class="sidebar-menu" :default-active="activeMenu" @select="handleMenuSelect" router>
-                <el-menu-item index="/health">后端健康</el-menu-item>
-                <el-menu-item index="/tenants">多租户管理</el-menu-item>
-                <el-menu-item index="/usage">用量统计</el-menu-item>
-            </el-menu>
-        </div>
-        <div class="main-content">
-            <div class="header">
-                <div class="header-title">ModelGate 管理后台</div>
-            </div>
-            <div class="content">
-                <router-view/>
-            </div>
+    <div id="login-screen" class="login-screen">
+        <div class="login-box">
+            <h2>ModelGate Admin</h2>
+            <form id="login-form">
+                <div class="form-group">
+                    <label>Admin API Key</label>
+                    <input type="password" id="admin-key" required placeholder="Enter admin API key">
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%">Login</button>
+            </form>
         </div>
     </div>
-    <script src="https://cdn.jsdelivr.net/npm/vue@3.4.27/dist/vue.global.prod.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/element-plus@2.4.4/dist/index.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/vue-router@4.2.55/dist/vue-router.global.prod.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+
+    <div id="admin-panel" class="hidden">
+        <div class="header">
+            <h1>ModelGate Admin</h1>
+            <div class="user-info">
+                <button class="btn btn-sm" onclick="logout()">Logout</button>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="nav-tabs">
+                <button class="nav-tab active" data-tab="keys">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+                    </svg>
+                    API Keys
+                </button>
+                <button class="nav-tab" data-tab="models">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                        <line x1="8" y1="21" x2="16" y2="21"/>
+                        <line x1="12" y1="17" x2="12" y2="21"/>
+                    </svg>
+                    Models
+                </button>
+            </div>
+
+        <div id="keys-panel" class="card">
+            <div class="card-header">
+                <h2>API Keys</h2>
+                <button class="btn btn-primary" onclick="showCreateKeyModal()">Create Key</button>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Key</th>
+                        <th>Quota</th>
+                        <th>Used</th>
+                        <th>Rate Limit</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="keys-tbody"></tbody>
+            </table>
+        </div>
+
+        <div id="models-panel" class="card hidden">
+            <div class="card-header">
+                <h2>Models</h2>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button class="btn btn-success" onclick="syncModels()">Sync from Backends</button>
+                    <button class="btn btn-primary" onclick="showCreateModelModal()">Add Model</button>
+                </div>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Backend</th>
+                        <th>Base URL</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="models-tbody"></tbody>
+            </table>
+        </div>
+        </div>
+    </div>
+
+    <div id="key-modal" class="modal">
+        <div class="modal-content">
+            <h2 id="key-modal-title">Create API Key</h2>
+            <form id="key-form">
+                <div class="form-group">
+                    <label>Name</label>
+                    <input type="text" id="key-name" required>
+                </div>
+                <div class="form-group">
+                    <label>Quota (tokens)</label>
+                    <input type="number" id="key-quota" value="1000000">
+                </div>
+                <div class="form-group">
+                    <label>Rate Limit (RPM)</label>
+                    <input type="number" id="key-rate-limit" value="60">
+                </div>
+                <div class="form-group">
+                    <label>Allowed IPs (comma separated)</label>
+                    <input type="text" id="key-allowed-ips" placeholder="e.g. 192.168.1.1, 10.0.0.1">
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn" onclick="closeModal('key-modal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="model-modal" class="modal">
+        <div class="modal-content">
+            <h2 id="model-modal-title">Add Model</h2>
+            <form id="model-form">
+                <div class="form-group">
+                    <label>Name</label>
+                    <input type="text" id="model-name" required>
+                </div>
+                <div class="form-group">
+                    <label>Backend Type</label>
+                    <select id="model-backend">
+                        <option value="ollama">Ollama</option>
+                        <option value="vllm">vLLM</option>
+                        <option value="llamacpp">llama.cpp</option>
+                        <option value="openai">OpenAI</option>
+                        <option value="api3">API3</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Base URL</label>
+                    <input type="text" id="model-base-url" placeholder="http://localhost:11434">
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn" onclick="closeModal('model-modal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script>
-        const { createApp, ref, onMounted } = Vue;
-        const { createRouter, createWebHashHistory } = VueRouter;
-        const { ElMessage, ElMessageBox } = ElementPlus;
-
         const API_BASE = '/admin';
+        let apiKey = localStorage.getItem('modelgate_admin_key') || '';
+        let keysData = [];
+        let showKeyId = null;
 
-        const HealthView = {
-            template: `
-                <div>
-                    <div class="card">
-                        <div class="card-title">后端健康状态</div>
-                        <el-button type="primary" @click="checkAll" :loading="checking">立即检查所有后端</el-button>
-                        <el-button @click="refresh" style="margin-left: 10px">刷新</el-button>
-                        <el-table :data="healths" style="margin-top: 20px" stripe>
-                            <el-table-column prop="backend_type" label="后端类型" width="120"/>
-                            <el-table-column prop="backend_url" label="后端地址"/>
-                            <el-table-column label="状态" width="100">
-                                <template #default="scope">
-                                    <el-tag :type="scope.row.is_valid ? 'success' : 'danger'">
-                                        {{ scope.row.is_valid ? '正常' : '异常' }}
-                                    </el-tag>
-                                </template>
-                            </el-table-column>
-                            <el-table-column prop="last_check" label="最后检查" width="180">
-                                <template #default="scope">
-                                    {{ formatDate(scope.row.last_check) }}
-                                </template>
-                            </el-table-column>
-                            <el-table-column prop="response_time" label="响应时间" width="120">
-                                <template #default="scope">
-                                    {{ scope.row.response_time }}ms
-                                </template>
-                            </el-table-column>
-                            <el-table-column prop="last_error" label="错误信息"/>
-                        </el-table>
-                    </div>
-                </div>
-            `,
-            setup() {
-                const healths = ref([]);
-                const checking = ref(false);
-
-                const fetchHealths = async () => {
-                    try {
-                        const res = await axios.get(`${API_BASE}/health/all`);
-                        healths.value = res.data.data || [];
-                    } catch (err) {
-                        ElMessage.error('获取健康状态失败');
-                    }
-                };
-
-                const checkAll = async () => {
-                    checking.value = true;
-                    try {
-                        await axios.post(`${API_BASE}/health/check`);
-                        ElMessage.success('健康检查已启动');
-                        await new Promise(r => setTimeout(r, 2000));
-                        await fetchHealths();
-                    } catch (err) {
-                        ElMessage.error('健康检查失败');
-                    } finally {
-                        checking.value = false;
-                    }
-                };
-
-                const refresh = () => fetchHealths();
-
-                const formatDate = (dateStr) => {
-                    if (!dateStr) return '-';
-                    return new Date(dateStr).toLocaleString('zh-CN');
-                };
-
-                onMounted(() => fetchHealths());
-
-                return { healths, checking, checkAll, refresh, formatDate };
+        function checkAuth() {
+            if (!apiKey) {
+                document.getElementById('login-screen').style.display = 'flex';
+                document.getElementById('admin-panel').style.display = 'none';
+            } else {
+                document.getElementById('login-screen').style.display = 'none';
+                document.getElementById('admin-panel').style.display = 'block';
+                loadKeys();
+                loadModels();
             }
-        };
+        }
 
-        const TenantsView = {
-            template: `
-                <div>
-                    <div class="card">
-                        <div class="card-title">用户管理</div>
-                        <el-button type="primary" @click="showUserDialog = true">添加用户</el-button>
-                        <el-table :data="users" style="margin-top: 20px" stripe>
-                            <el-table-column prop="name" label="用户名"/>
-                            <el-table-column prop="email" label="邮箱"/>
-                            <el-table-column prop="status" label="状态" width="100">
-                                <template #default="scope">
-                                    <el-tag>{{ scope.row.status }}</el-tag>
-                                </template>
-                            </el-table-column>
-                            <el-table-column label="操作" width="200">
-                                <template #default="scope">
-                                    <el-button type="primary" size="small" @click="editUser(scope.row)">编辑</el-button>
-                                    <el-button type="danger" size="small" @click="deleteUser(scope.row)">删除</el-button>
-                                </template>
-                            </el-table-column>
-                        </el-table>
-                    </div>
+        function login(key) {
+            apiKey = key;
+            localStorage.setItem('modelgate_admin_key', key);
+            document.getElementById('login-screen').style.display = 'none';
+            document.getElementById('admin-panel').style.display = 'block';
+            loadKeys();
+            loadModels();
+        }
 
-                    <div class="card">
-                        <div class="card-title">API Key 管理</div>
-                        <el-button type="primary" @click="showApiKeyDialog = true">添加 API Key</el-button>
-                        <el-table :data="apiKeys" style="margin-top: 20px" stripe>
-                            <el-table-column prop="id" label="ID" width="80"/>
-                            <el-table-column prop="user_id" label="用户ID" width="100"/>
-                            <el-table-column prop="key_hash" label="Key Hash" width="200"/>
-                            <el-table-column prop="quota_tokens" label="配额" width="120"/>
-                            <el-table-column prop="used_tokens" label="已用" width="120"/>
-                            <el-table-column prop="rate_limit_rpm" label="RPM限制" width="120"/>
-                            <el-table-column prop="status" label="状态" width="100">
-                                <template #default="scope">
-                                    <el-tag>{{ scope.row.status }}</el-tag>
-                                </template>
-                            </el-table-column>
-                            <el-table-column label="操作" width="200">
-                                <template #default="scope">
-                                    <el-button type="primary" size="small" @click="editApiKey(scope.row)">编辑</el-button>
-                                    <el-button type="danger" size="small" @click="deleteApiKey(scope.row)">删除</el-button>
-                                </template>
-                            </el-table-column>
-                        </el-table>
-                    </div>
+        function logout() {
+            apiKey = '';
+            localStorage.removeItem('modelgate_admin_key');
+            document.getElementById('login-screen').style.display = 'flex';
+            document.getElementById('admin-panel').style.display = 'none';
+        }
 
-                    <div class="card">
-                        <div class="card-title">模型管理</div>
-                        <el-button type="primary" @click="showModelDialog = true">添加模型</el-button>
-                        <el-table :data="models" style="margin-top: 20px" stripe>
-                            <el-table-column prop="name" label="模型名称"/>
-                            <el-table-column prop="backend_type" label="后端类型" width="120">
-                                <template #default="scope">
-                                    <el-tag>{{ scope.row.backend_type }}</el-tag>
-                                </template>
-                            </el-table-column>
-                            <el-table-column prop="backend_url" label="后端地址"/>
-                            <el-table-column prop="backend_model_name" label="后端模型名"/>
-                            <el-table-column label="状态" width="100">
-                                <template #default="scope">
-                                    <el-tag :type="scope.row.is_active ? 'success' : 'danger'">
-                                        {{ scope.row.is_active ? '启用' : '禁用' }}
-                                    </el-tag>
-                                </template>
-                            </el-table-column>
-                            <el-table-column label="操作" width="200">
-                                <template #default="scope">
-                                    <el-button type="primary" size="small" @click="editModel(scope.row)">编辑</el-button>
-                                    <el-button type="danger" size="small" @click="deleteModel(scope.row)">删除</el-button>
-                                </template>
-                            </el-table-column>
-                        </el-table>
-                    </div>
+        function getHeaders() {
+            return {
+                'Authorization': 'Bearer ' + apiKey,
+                'Content-Type': 'application/json'
+            };
+        }
 
-                    <el-dialog v-model="showUserDialog" title="添加用户" width="500px">
-                        <el-form :model="newUserForm" :rules="userRules" ref="userFormRef">
-                            <el-form-item label="用户名" prop="name">
-                                <el-input v-model="newUserForm.name"/>
-                            </el-form-item>
-                            <el-form-item label="邮箱" prop="email">
-                                <el-input v-model="newUserForm.email"/>
-                            </el-form-item>
-                        </el-form>
-                        <template #footer>
-                            <el-button @click="showUserDialog = false">取消</el-button>
-                            <el-button type="primary" @click="handleSaveUser" :loading="userLoading">确定</el-button>
-                        </template>
-                    </el-dialog>
-
-                    <el-dialog v-model="showApiKeyDialog" title="添加 API Key" width="500px">
-                        <el-form :model="newApiKeyForm" :rules="apiKeyRules" ref="apiKeyFormRef">
-                            <el-form-item label="用户ID" prop="user_id">
-                                <el-input-number v-model="newApiKeyForm.user_id" :min="1"/>
-                            </el-form-item>
-                            <el-form-item label="配额(Tokens)" prop="quota_tokens">
-                                <el-input-number v-model="newApiKeyForm.quota_tokens" :min="0"/>
-                            </el-form-item>
-                            <el-form-item label="RPM限制" prop="rate_limit_rpm">
-                                <el-input-number v-model="newApiKeyForm.rate_limit_rpm" :min="1"/>
-                            </el-form-item>
-                        </el-form>
-                        <template #footer>
-                            <el-button @click="showApiKeyDialog = false">取消</el-button>
-                            <el-button type="primary" @click="handleSaveApiKey" :loading="apiKeyLoading">确定</el-button>
-                        </template>
-                    </el-dialog>
-
-                    <el-dialog v-model="showModelDialog" title="添加模型" width="600px">
-                        <el-form :model="newModelForm" :rules="modelRules" ref="modelFormRef">
-                            <el-form-item label="模型名称" prop="name">
-                                <el-input v-model="newModelForm.name"/>
-                            </el-form-item>
-                            <el-form-item label="后端类型" prop="backend_type">
-                                <el-select v-model="newModelForm.backend_type">
-                                    <el-option label="Ollama" value="ollama"/>
-                                    <el-option label="vLLM" value="vllm"/>
-                                    <el-option label="llama.cpp" value="llamacpp"/>
-                                </el-select>
-                            </el-form-item>
-                            <el-form-item label="后端URL" prop="backend_url">
-                                <el-input v-model="newModelForm.backend_url"/>
-                            </el-form-item>
-                            <el-form-item label="后端模型名" prop="backend_model_name">
-                                <el-input v-model="newModelForm.backend_model_name"/>
-                            </el-form-item>
-                            <el-form-item label="是否启用" prop="is_active">
-                                <el-switch v-model="newModelForm.is_active"/>
-                            </el-form-item>
-                        </el-form>
-                        <template #footer>
-                            <el-button @click="showModelDialog = false">取消</el-button>
-                            <el-button type="primary" @click="handleSaveModel" :loading="modelLoading">确定</el-button>
-                        </template>
-                    </el-dialog>
-                </div>
-            `,
-            setup() {
-                const users = ref([]);
-                const apiKeys = ref([]);
-                const models = ref([]);
-                const showUserDialog = ref(false);
-                const showApiKeyDialog = ref(false);
-                const showModelDialog = ref(false);
-                const userLoading = ref(false);
-                const apiKeyLoading = ref(false);
-                const modelLoading = ref(false);
-
-                const newUserForm = ref({ name: '', email: '' });
-                const newApiKeyForm = ref({ user_id: 1, quota_tokens: 1000000, rate_limit_rpm: 60 });
-                const newModelForm = ref({ name: '', backend_type: 'ollama', backend_url: '', backend_model_name: '', is_active: true });
-
-                const userRules = { name: [{ required: true, message: '请输入用户名', trigger: 'blur' }], email: [{ type: 'email', message: '请输入正确的邮箱地址', trigger: 'blur' }] };
-                const apiKeyRules = { user_id: [{ required: true, message: '请选择用户', trigger: 'change' }], quota_tokens: [{ required: true, message: '请输入配额', trigger: 'change' }], rate_limit_rpm: [{ required: true, message: '请输入RPM限制', trigger: 'change' }] };
-                const modelRules = { name: [{ required: true, message: '请输入模型名称', trigger: 'blur' }], backend_type: [{ required: true, message: '请选择后端类型', trigger: 'change' }], backend_url: [{ required: true, message: '请输入后端URL', trigger: 'blur' }], backend_model_name: [{ required: true, message: '请输入后端模型名', trigger: 'blur' }] };
-
-                const fetchData = async () => {
-                    try {
-                        const [usersRes, apiKeysRes, modelsRes] = await Promise.all([
-                            axios.get(`${API_BASE}/tenants/users`),
-                            axios.get(`${API_BASE}/tenants/apikeys`),
-                            axios.get(`${API_BASE}/tenants/models`)
-                        ]);
-                        users.value = usersRes.data.data || [];
-                        apiKeys.value = apiKeysRes.data.data || [];
-                        models.value = modelsRes.data.data || [];
-                    } catch (err) {
-                        ElMessage.error('获取数据失败');
-                    }
-                };
-
-                const handleSaveUser = async () => {
-                    try {
-                        userLoading.value = true;
-                        await axios.post(`${API_BASE}/tenants/users`, newUserForm.value);
-                        ElMessage.success('添加成功');
-                        showUserDialog.value = false;
-                        await fetchData();
-                    } catch (err) {
-                        ElMessage.error('添加失败');
-                    } finally {
-                        userLoading.value = false;
-                    }
-                };
-
-                const handleSaveApiKey = async () => {
-                    try {
-                        apiKeyLoading.value = true;
-                        await axios.post(`${API_BASE}/tenants/apikeys`, newApiKeyForm.value);
-                        ElMessage.success('添加成功');
-                        showApiKeyDialog.value = false;
-                        await fetchData();
-                    } catch (err) {
-                        ElMessage.error('添加失败');
-                    } finally {
-                        apiKeyLoading.value = false;
-                    }
-                };
-
-                const handleSaveModel = async () => {
-                    try {
-                        modelLoading.value = true;
-                        await axios.post(`${API_BASE}/tenants/models`, newModelForm.value);
-                        ElMessage.success('添加成功');
-                        showModelDialog.value = false;
-                        await fetchData();
-                    } catch (err) {
-                        ElMessage.error('添加失败');
-                    } finally {
-                        modelLoading.value = false;
-                    }
-                };
-
-                const deleteUser = async (user) => {
-                    if (!await ElMessageBox.confirm(`确认删除用户 ${user.name}？`, '警告', { type: 'warning' })) return;
-                    try {
-                        await axios.delete(`${API_BASE}/tenants/users/${user.id}`);
-                        ElMessage.success('删除成功');
-                        await fetchData();
-                    } catch (err) {
-                        ElMessage.error('删除失败');
-                    }
-                };
-
-                const deleteApiKey = async (apiKey) => {
-                    if (!await ElMessageBox.confirm(`确认删除 API Key？`, '警告', { type: 'warning' })) return;
-                    try {
-                        await axios.delete(`${API_BASE}/tenants/apikeys/${apiKey.id}`);
-                        ElMessage.success('删除成功');
-                        await fetchData();
-                    } catch (err) {
-                        ElMessage.error('删除失败');
-                    }
-                };
-
-                const deleteModel = async (model) => {
-                    if (!await ElMessageBox.confirm(`确认删除模型 ${model.name}？`, '警告', { type: 'warning' })) return;
-                    try {
-                        await axios.delete(`${API_BASE}/tenants/models/${model.id}`);
-                        ElMessage.success('删除成功');
-                        await fetchData();
-                    } catch (err) {
-                        ElMessage.error('删除失败');
-                    }
-                };
-
-                onMounted(() => fetchData());
-
-                return {
-                    users, apiKeys, models,
-                    showUserDialog, showApiKeyDialog, showModelDialog,
-                    userLoading, apiKeyLoading, modelLoading,
-                    newUserForm, newApiKeyForm, newModelForm,
-                    userRules, apiKeyRules, modelRules,
-                    handleSaveUser, handleSaveApiKey, handleSaveModel,
-                    deleteUser, deleteApiKey, deleteModel
-                };
+        document.getElementById('login-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            console.log('Login form submitted');
+            const key = document.getElementById('admin-key').value;
+            if (!key) {
+                alert('Please enter API key');
+                return;
             }
-        };
-
-        const UsageView = {
-            template: `
-                <div>
-                    <div class="stats-grid">
-                        <div class="stat-card">
-                            <div class="stat-value">{{ stats.total_used_tokens }}</div>
-                            <div class="stat-label">总消耗 Tokens</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-value">{{ stats.active_keys }}</div>
-                            <div class="stat-label">活跃 API Key</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-value">{{ usageData.length }}</div>
-                            <div class="stat-label">数据点</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-value">{{ logs.length }}</div>
-                            <div class="stat-label">最近日志</div>
-                        </div>
-                    </div>
-
-                    <div class="card">
-                        <div class="card-title">用量趋势 (按小时)</div>
-                        <div ref="chartRef" style="height: 400px;"></div>
-                    </div>
-
-                    <div class="card">
-                        <div class="card-title">API Key 用量排行</div>
-                        <el-table :data="usageByKey" style="margin-top: 20px" stripe>
-                            <el-table-column prop="api_key_id" label="API Key ID" width="150"/>
-                            <el-table-column prop="total_tokens" label="消耗 Tokens" width="150"/>
-                            <el-table-column prop="total_requests" label="请求数" width="120"/>
-                            <el-table-column prop="avg_response_time" label="平均响应时间" width="200">
-                                <template #default="scope">
-                                    {{ scope.row.avg_response_time }}ms
-                                </template>
-                            </el-table-column>
-                        </el-table>
-                    </div>
-
-                    <div class="card">
-                        <div class="card-title">最近日志</div>
-                        <el-table :data="logs" style="margin-top: 20px" stripe>
-                            <el-table-column prop="timestamp" label="时间" width="180">
-                                <template #default="scope">
-                                    {{ formatDate(scope.row.timestamp) }}
-                                </template>
-                            </el-table-column>
-                            <el-table-column prop="api_key_id" label="API Key ID" width="120"/>
-                            <el-table-column prop="used_tokens" label="消耗 Tokens" width="120"/>
-                            <el-table-column prop="response_time" label="响应时间" width="120">
-                                <template #default="scope">
-                                    {{ scope.row.response_time }}ms
-                                </template>
-                            </el-table-column>
-                            <el-table-column prop="status" label="状态码" width="100"/>
-                        </el-table>
-                    </div>
-                </div>
-            `,
-            setup() {
-                const stats = ref({ total_used_tokens: 0, active_keys: 0 });
-                const usageData = ref([]);
-                const usageByKey = ref([]);
-                const logs = ref([]);
-                const chartRef = ref(null);
-                const chartInstance = ref(null);
-
-                const fetchData = async () => {
-                    try {
-                        const [statsRes, usageRes, byKeyRes, logsRes] = await Promise.all([
-                            axios.get(`${API_BASE}/usage/stats`),
-                            axios.get(`${API_BASE}/usage/stats/by-time`),
-                            axios.get(`${API_BASE}/usage/stats/by-key`),
-                            axios.get(`${API_BASE}/usage/logs?limit=50`)
-                        ]);
-                        stats.value = statsRes.data.data || { total_used_tokens: 0, active_keys: 0 };
-                        usageData.value = usageRes.data.data || [];
-                        usageByKey.value = byKeyRes.data.data || [];
-                        logs.value = logsRes.data.data || [];
-                        updateChart();
-                    } catch (err) {
-                        ElMessage.error('获取数据失败');
+            const headers = {
+                'Authorization': 'Bearer ' + key,
+                'Content-Type': 'application/json'
+            };
+            
+            fetch(`${API_BASE}/verify`, { headers: headers })
+                .then(res => {
+                    console.log('Verify response:', res.status);
+                    if (res.ok) {
+                        login(key);
+                    } else {
+                        alert('Invalid API key');
                     }
-                };
-
-                const updateChart = () => {
-                    if (chartInstance.value) {
-                        chartInstance.value.dispose();
-                    }
-                    const chart = echarts.init(chartRef.value);
-                    const seriesData = usageData.value.map(item => [item.time_bucket, item.total_tokens]);
-                    chart.setOption({
-                        title: { text: '消耗 Tokens 趋势', left: 'center' },
-                        tooltip: { trigger: 'axis' },
-                        xAxis: { type: 'category', data: usageData.value.map(item => item.time_bucket) },
-                        yAxis: { type: 'value' },
-                        series: [{ type: 'line', data: seriesData, smooth: true, areaStyle: {} }]
-                    });
-                    chartInstance.value = chart;
-                };
-
-                const formatDate = (dateStr) => {
-                    if (!dateStr) return '-';
-                    return new Date(dateStr).toLocaleString('zh-CN');
-                };
-
-                onMounted(() => {
-                    fetchData();
+                })
+                .catch(err => {
+                    console.error('Login error:', err);
+                    alert('Connection error');
                 });
-
-                return { stats, usageData, usageByKey, logs, chartRef, formatDate };
-            }
-        };
-
-        const routes = [
-            { path: '/health', component: HealthView },
-            { path: '/tenants', component: TenantsView },
-            { path: '/usage', component: UsageView },
-            { path: '/', redirect: '/health' }
-        ];
-
-        const router = createRouter({
-            history: createWebHashHistory(),
-            routes
         });
 
-        const app = createApp({});
-        app.use(router);
-        app.use(ElementPlus);
-        app.mount('#app');
+        function toggleShowKey(id) {
+            if (showKeyId === id) {
+                showKeyId = null;
+            } else {
+                showKeyId = id;
+            }
+            renderKeys();
+        }
+
+        function renderKeys() {
+            const tbody = document.getElementById('keys-tbody');
+            tbody.innerHTML = keysData.map(key => {
+                const isShowing = showKeyId === key.id;
+                const keyDisplay = isShowing ? key.key : (key.key ? key.key.substring(0, 8) + '...' : '-');
+                return `
+                    <tr>
+                        <td><strong>${key.name}</strong>${key.admin ? ' <span class="badge badge-admin">Admin</span>' : ''}</td>
+                        <td style="font-family: monospace; cursor: pointer; color: #4f46e5;" onclick="toggleShowKey(${key.id})">
+                            ${isShowing ? '👁️ ' + key.key : '👁️ ' + key.key.substring(0, 8) + '...'}
+                        </td>
+                        <td>${key.quota.toLocaleString()}</td>
+                        <td>${(key.quota_used || 0).toLocaleString()}</td>
+                        <td>${key.rate_limit} RPM</td>
+                        <td><span class="badge ${key.status === 'active' ? 'badge-active' : 'badge-inactive'}">${key.status}</span></td>
+                        <td>
+                            ${!key.admin ? `<button class="btn btn-danger btn-sm" onclick="deleteKey(${key.id})">Delete</button>` : ''}
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        document.querySelectorAll('.nav-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                
+                document.getElementById('keys-panel').classList.add('hidden');
+                document.getElementById('models-panel').classList.add('hidden');
+                document.getElementById(`${tab.dataset.tab}-panel`).classList.remove('hidden');
+            });
+        });
+
+        async function loadKeys() {
+            try {
+                const res = await fetch(`${API_BASE}/keys`, { headers: getHeaders() });
+                if (res.status === 401) { logout(); return; }
+                keysData = await res.json();
+                renderKeys();
+            } catch (err) {
+                console.error('Failed to load keys:', err);
+            }
+        }
+
+        async function loadModels() {
+            try {
+                const res = await fetch(`${API_BASE}/models`, { headers: getHeaders() });
+                if (res.status === 401) { logout(); return; }
+                const models = await res.json();
+                const tbody = document.getElementById('models-tbody');
+                if (!models || models.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #999;">No models. Click "Sync from Backends" or "Add Model" to add.</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = models.map(model => `
+                    <tr>
+                        <td><strong>${model.name}</strong></td>
+                        <td>${model.backend_type}</td>
+                        <td>${model.base_url || '-'}</td>
+                        <td><span class="badge ${model.enabled ? 'badge-active' : 'badge-inactive'}">${model.enabled ? 'active' : 'disabled'}</span></td>
+                        <td>
+                            <button class="btn btn-danger btn-sm" onclick="deleteModel(${model.id})">Delete</button>
+                        </td>
+                    </tr>
+                `).join('');
+            } catch (err) {
+                console.error('Failed to load models:', err);
+            }
+        }
+
+        async function syncModels() {
+            if (!confirm('Sync models from all configured backends? This will add new models only.')) return;
+            
+            try {
+                const res = await fetch(`${API_BASE}/models/sync`, { 
+                    method: 'POST',
+                    headers: getHeaders() 
+                });
+                if (res.status === 401) { logout(); return; }
+                const result = await res.json();
+                const count = result.created ? result.created.length : 0;
+                if (count > 0) {
+                    alert(`Sync complete! Created ${count} models.`);
+                } else {
+                    alert('No new models found.');
+                }
+                loadModels();
+            } catch (err) {
+                console.error('Failed to sync models:', err);
+                alert('Sync failed');
+            }
+        }
+
+        function showCreateKeyModal() {
+            document.getElementById('key-modal-title').textContent = 'Create API Key';
+            document.getElementById('key-form').reset();
+            document.getElementById('key-modal').classList.add('active');
+        }
+
+        function showCreateModelModal() {
+            document.getElementById('model-modal-title').textContent = 'Add Model';
+            document.getElementById('model-form').reset();
+            document.getElementById('model-modal').classList.add('active');
+        }
+
+        function closeModal(id) {
+            document.getElementById(id).classList.remove('active');
+        }
+
+        document.getElementById('key-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = {
+                name: document.getElementById('key-name').value,
+                quota: parseInt(document.getElementById('key-quota').value),
+                rate_limit: parseInt(document.getElementById('key-rate-limit').value),
+                allowed_ips: document.getElementById('key-allowed-ips').value
+            };
+            
+            const res = await fetch(`${API_BASE}/keys`, {
+                method: 'POST',
+                headers: getHeaders(),
+                body: JSON.stringify(data)
+            });
+            
+            if (res.ok) {
+                closeModal('key-modal');
+                loadKeys();
+                const result = await res.json();
+                alert(`API Key created: ${result.key}`);
+            }
+        });
+
+        document.getElementById('model-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = {
+                name: document.getElementById('model-name').value,
+                backend_type: document.getElementById('model-backend').value,
+                base_url: document.getElementById('model-base-url').value,
+                enabled: true
+            };
+            
+            const res = await fetch(`${API_BASE}/models`, {
+                method: 'POST',
+                headers: getHeaders(),
+                body: JSON.stringify(data)
+            });
+            
+            if (res.ok) {
+                closeModal('model-modal');
+                loadModels();
+            }
+        });
+
+        async function deleteKey(id) {
+            if (!confirm('Are you sure you want to delete this API key?')) return;
+            const res = await fetch(`${API_BASE}/keys/${id}`, { method: 'DELETE', headers: getHeaders() });
+            if (res.status === 401) { logout(); return; }
+            loadKeys();
+        }
+
+        async function deleteModel(id) {
+            if (!confirm('Are you sure you want to delete this model?')) return;
+            const res = await fetch(`${API_BASE}/models/${id}`, { method: 'DELETE', headers: getHeaders() });
+            if (res.status === 401) { logout(); return; }
+            loadModels();
+        }
+
+        checkAuth();
     </script>
 </body>
 </html>
