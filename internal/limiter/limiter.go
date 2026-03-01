@@ -35,7 +35,7 @@ func NewRateLimiter(redisAddr string, redisPassword string, redisDB int, rpm int
 	}, nil
 }
 
-func (r *RateLimiter) Allow(key string) (bool, error) {
+func (r *RateLimiter) Allow(key string, rpm int) (bool, error) {
 	ctx := context.Background()
 
 	now := time.Now()
@@ -58,11 +58,12 @@ func (r *RateLimiter) Allow(key string) (bool, error) {
 	}
 
 	currentCount := r.redis.ZCard(ctx, rateKey).Val()
+	limit := r.EffectiveLimit(rpm)
 
-	return currentCount <= int64(r.rpm), nil
+	return currentCount <= int64(limit), nil
 }
 
-func (r *RateLimiter) GetRemaining(key string) (int, error) {
+func (r *RateLimiter) GetRemaining(key string, rpm int) (int, error) {
 	ctx := context.Background()
 	rateKey := fmt.Sprintf("rate:%s", key)
 
@@ -71,12 +72,26 @@ func (r *RateLimiter) GetRemaining(key string) (int, error) {
 		return 0, err
 	}
 
-	remaining := r.rpm - int(count)
+	remaining := r.EffectiveLimit(rpm) - int(count)
 	if remaining < 0 {
 		remaining = 0
 	}
 
 	return remaining, nil
+}
+
+func (r *RateLimiter) EffectiveLimit(rpm int) int {
+	effectiveRPM := rpm
+	if effectiveRPM <= 0 {
+		effectiveRPM = r.rpm
+	}
+
+	effectiveBurst := r.burst
+	if effectiveBurst < 0 {
+		effectiveBurst = 0
+	}
+
+	return effectiveRPM + effectiveBurst
 }
 
 func (r *RateLimiter) Close() error {

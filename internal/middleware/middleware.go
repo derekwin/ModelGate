@@ -102,8 +102,10 @@ func (m *AuthMiddleware) RateLimit() gin.HandlerFunc {
 
 		key := apiKeyModel.(*models.APIKey)
 		keyHash := key.KeyHash
+		limit := m.limiter.EffectiveLimit(key.RateLimit)
+		c.Header("X-RateLimit-Limit", strconv.Itoa(limit))
 
-		allowed, err := m.limiter.Allow(keyHash)
+		allowed, err := m.limiter.Allow(keyHash, key.RateLimit)
 		if err != nil {
 			log.Error().Err(err).Msg("Rate limiter error")
 			c.Next()
@@ -111,7 +113,7 @@ func (m *AuthMiddleware) RateLimit() gin.HandlerFunc {
 		}
 
 		if !allowed {
-			remaining, _ := m.limiter.GetRemaining(keyHash)
+			remaining, _ := m.limiter.GetRemaining(keyHash, key.RateLimit)
 			c.Header("X-RateLimit-Remaining", strconv.Itoa(remaining))
 			c.JSON(http.StatusTooManyRequests, gin.H{
 				"error": gin.H{
@@ -124,7 +126,7 @@ func (m *AuthMiddleware) RateLimit() gin.HandlerFunc {
 			return
 		}
 
-		remaining, _ := m.limiter.GetRemaining(keyHash)
+		remaining, _ := m.limiter.GetRemaining(keyHash, key.RateLimit)
 		c.Header("X-RateLimit-Remaining", strconv.Itoa(remaining))
 
 		c.Next()
@@ -181,6 +183,11 @@ func BodySizeLimit(maxSize int64) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+
+		if c.Request.Body != nil {
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxSize)
+		}
+
 		c.Next()
 	}
 }
