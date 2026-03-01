@@ -1,12 +1,13 @@
 package adapters
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"modelgate/internal/models"
@@ -31,14 +32,26 @@ func (a *VLLMAdapter) ChatCompletion(ctx context.Context, req OpenAIRequest, mod
 	}
 
 	vllmReq := map[string]interface{}{
-		"model":       req.Model,
-		"messages":    req.Messages,
-		"stream":      req.Stream,
-		"temperature": req.Temperature,
-		"max_tokens":  req.MaxTokens,
-		"top_p":       req.TopP,
-		"n":           req.N,
-		"stop":        req.Stop,
+		"model":    req.Model,
+		"messages": req.Messages,
+	}
+	if req.Stream {
+		vllmReq["stream"] = true
+	}
+	if req.Temperature >= 0 {
+		vllmReq["temperature"] = req.Temperature
+	}
+	if req.MaxTokens > 0 {
+		vllmReq["max_tokens"] = req.MaxTokens
+	}
+	if req.TopP > 0 {
+		vllmReq["top_p"] = req.TopP
+	}
+	if req.N > 0 {
+		vllmReq["n"] = req.N
+	}
+	if len(req.Stop) > 0 {
+		vllmReq["stop"] = req.Stop
 	}
 
 	headers := map[string]string{
@@ -50,7 +63,7 @@ func (a *VLLMAdapter) ChatCompletion(ctx context.Context, req OpenAIRequest, mod
 	}
 
 	if req.Stream {
-		return a.streamChatCompletion(ctx, baseURL, vllmReq, headers)
+		return a.streamChatCompletion(ctx, baseURL, vllmReq, headers, req.StreamFunc)
 	}
 
 	resp, err := a.HTTPClient.Post(ctx, baseURL+"/v1/chat/completions", vllmReq, headers)
@@ -71,7 +84,7 @@ func (a *VLLMAdapter) ChatCompletion(ctx context.Context, req OpenAIRequest, mod
 	return &vllmResp, nil
 }
 
-func (a *VLLMAdapter) streamChatCompletion(ctx context.Context, baseURL string, req map[string]interface{}, headers map[string]string) (*OpenAIResponse, error) {
+func (a *VLLMAdapter) streamChatCompletion(ctx context.Context, baseURL string, req map[string]interface{}, headers map[string]string, streamFunc func(string)) (*OpenAIResponse, error) {
 	req["stream"] = true
 	jsonReq, _ := json.Marshal(req)
 
@@ -94,16 +107,27 @@ func (a *VLLMAdapter) streamChatCompletion(ctx context.Context, baseURL string, 
 		return nil, ParseErrorResponse(resp)
 	}
 
-	dec := json.NewDecoder(resp.Body)
 	var fullContent string
 	var totalPrompt, totalCompletion int64
 
-	for {
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || !strings.HasPrefix(line, "data:") {
+			continue
+		}
+
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "[DONE]" {
+			break
+		}
+
 		var chunk struct {
 			Choices []struct {
 				Delta struct {
 					Content string `json:"content"`
 				} `json:"delta"`
+				FinishReason string `json:"finish_reason"`
 			} `json:"choices"`
 			Usage struct {
 				PromptTokens     int64 `json:"prompt_tokens"`
@@ -111,18 +135,24 @@ func (a *VLLMAdapter) streamChatCompletion(ctx context.Context, baseURL string, 
 			} `json:"usage"`
 		}
 
-		if err := dec.Decode(&chunk); err != nil {
-			if err == io.EOF {
-				break
-			}
-			return nil, fmt.Errorf("failed to decode stream chunk: %w", err)
+		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
+			continue
 		}
 
 		if len(chunk.Choices) > 0 {
 			fullContent += chunk.Choices[0].Delta.Content
+			if streamFunc != nil {
+				streamFunc("data: " + payload + "\n\n")
+			}
+			if chunk.Choices[0].FinishReason != "" {
+				break
+			}
 		}
 		totalPrompt = chunk.Usage.PromptTokens
 		totalCompletion = chunk.Usage.CompletionTokens
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read stream: %w", err)
 	}
 
 	return &OpenAIResponse{
@@ -155,14 +185,26 @@ func (a *VLLMAdapter) Completion(ctx context.Context, req OpenAIRequest, model m
 	}
 
 	vllmReq := map[string]interface{}{
-		"model":       req.Model,
-		"prompt":      req.Prompt,
-		"stream":      req.Stream,
-		"temperature": req.Temperature,
-		"max_tokens":  req.MaxTokens,
-		"top_p":       req.TopP,
-		"n":           req.N,
-		"stop":        req.Stop,
+		"model":  req.Model,
+		"prompt": req.Prompt,
+	}
+	if req.Stream {
+		vllmReq["stream"] = true
+	}
+	if req.Temperature >= 0 {
+		vllmReq["temperature"] = req.Temperature
+	}
+	if req.MaxTokens > 0 {
+		vllmReq["max_tokens"] = req.MaxTokens
+	}
+	if req.TopP > 0 {
+		vllmReq["top_p"] = req.TopP
+	}
+	if req.N > 0 {
+		vllmReq["n"] = req.N
+	}
+	if len(req.Stop) > 0 {
+		vllmReq["stop"] = req.Stop
 	}
 
 	headers := map[string]string{

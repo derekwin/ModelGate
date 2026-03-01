@@ -1,12 +1,13 @@
 package adapters
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"modelgate/internal/models"
@@ -38,14 +39,26 @@ func (a *OpenAIAdapter) ChatCompletion(ctx context.Context, req OpenAIRequest, m
 	}
 
 	openaiReq := map[string]interface{}{
-		"model":       req.Model,
-		"messages":    req.Messages,
-		"stream":      req.Stream,
-		"temperature": req.Temperature,
-		"max_tokens":  req.MaxTokens,
-		"top_p":       req.TopP,
-		"n":           req.N,
-		"stop":        req.Stop,
+		"model":    req.Model,
+		"messages": req.Messages,
+	}
+	if req.Stream {
+		openaiReq["stream"] = true
+	}
+	if req.Temperature >= 0 {
+		openaiReq["temperature"] = req.Temperature
+	}
+	if req.MaxTokens > 0 {
+		openaiReq["max_tokens"] = req.MaxTokens
+	}
+	if req.TopP > 0 {
+		openaiReq["top_p"] = req.TopP
+	}
+	if req.N > 0 {
+		openaiReq["n"] = req.N
+	}
+	if len(req.Stop) > 0 {
+		openaiReq["stop"] = req.Stop
 	}
 
 	headers := map[string]string{
@@ -77,14 +90,24 @@ func (a *OpenAIAdapter) ChatCompletion(ctx context.Context, req OpenAIRequest, m
 
 func (a *OpenAIAdapter) streamChatCompletion(ctx context.Context, baseURL string, req OpenAIRequest, headers map[string]string) (*OpenAIResponse, error) {
 	openaiReq := map[string]interface{}{
-		"model":       req.Model,
-		"messages":    req.Messages,
-		"stream":      true,
-		"temperature": req.Temperature,
-		"max_tokens":  req.MaxTokens,
-		"top_p":       req.TopP,
-		"n":           req.N,
-		"stop":        req.Stop,
+		"model":    req.Model,
+		"messages": req.Messages,
+		"stream":   true,
+	}
+	if req.Temperature >= 0 {
+		openaiReq["temperature"] = req.Temperature
+	}
+	if req.MaxTokens > 0 {
+		openaiReq["max_tokens"] = req.MaxTokens
+	}
+	if req.TopP > 0 {
+		openaiReq["top_p"] = req.TopP
+	}
+	if req.N > 0 {
+		openaiReq["n"] = req.N
+	}
+	if len(req.Stop) > 0 {
+		openaiReq["stop"] = req.Stop
 	}
 
 	jsonReq, _ := json.Marshal(openaiReq)
@@ -107,16 +130,23 @@ func (a *OpenAIAdapter) streamChatCompletion(ctx context.Context, baseURL string
 		return nil, ParseErrorResponse(resp)
 	}
 
-	dec := json.NewDecoder(resp.Body)
 	var fullContent string
 
-	for {
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || !strings.HasPrefix(line, "data:") {
+			continue
+		}
+
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "[DONE]" {
+			break
+		}
+
 		var chunk map[string]interface{}
-		if err := dec.Decode(&chunk); err != nil {
-			if err == io.EOF {
-				break
-			}
-			return nil, fmt.Errorf("failed to decode stream chunk: %w", err)
+		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
+			continue
 		}
 
 		choices, ok := chunk["choices"].([]interface{})
@@ -140,14 +170,16 @@ func (a *OpenAIAdapter) streamChatCompletion(ctx context.Context, baseURL string
 		}
 
 		if req.StreamFunc != nil {
-			jsonData, _ := json.Marshal(chunk)
-			req.StreamFunc("data: " + string(jsonData) + "\n\n")
+			req.StreamFunc("data: " + payload + "\n\n")
 		}
 
 		finishReason, ok := choice["finish_reason"].(string)
-		if ok && finishReason == "stop" {
+		if ok && finishReason != "" {
 			break
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read stream: %w", err)
 	}
 
 	return &OpenAIResponse{
@@ -185,14 +217,26 @@ func (a *OpenAIAdapter) Completion(ctx context.Context, req OpenAIRequest, model
 	}
 
 	openaiReq := map[string]interface{}{
-		"model":       req.Model,
-		"prompt":      req.Prompt,
-		"stream":      req.Stream,
-		"temperature": req.Temperature,
-		"max_tokens":  req.MaxTokens,
-		"top_p":       req.TopP,
-		"n":           req.N,
-		"stop":        req.Stop,
+		"model":  req.Model,
+		"prompt": req.Prompt,
+	}
+	if req.Stream {
+		openaiReq["stream"] = true
+	}
+	if req.Temperature >= 0 {
+		openaiReq["temperature"] = req.Temperature
+	}
+	if req.MaxTokens > 0 {
+		openaiReq["max_tokens"] = req.MaxTokens
+	}
+	if req.TopP > 0 {
+		openaiReq["top_p"] = req.TopP
+	}
+	if req.N > 0 {
+		openaiReq["n"] = req.N
+	}
+	if len(req.Stop) > 0 {
+		openaiReq["stop"] = req.Stop
 	}
 
 	headers := map[string]string{

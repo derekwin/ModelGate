@@ -36,14 +36,26 @@ func (a *API3Adapter) ChatCompletion(ctx context.Context, req OpenAIRequest, mod
 	}
 
 	api3Req := map[string]interface{}{
-		"model":       req.Model,
-		"messages":    req.Messages,
-		"stream":      req.Stream,
-		"temperature": req.Temperature,
-		"max_tokens":  req.MaxTokens,
-		"top_p":       req.TopP,
-		"n":           req.N,
-		"stop":        req.Stop,
+		"model":    req.Model,
+		"messages": req.Messages,
+	}
+	if req.Stream {
+		api3Req["stream"] = true
+	}
+	if req.Temperature >= 0 {
+		api3Req["temperature"] = req.Temperature
+	}
+	if req.MaxTokens > 0 {
+		api3Req["max_tokens"] = req.MaxTokens
+	}
+	if req.TopP > 0 {
+		api3Req["top_p"] = req.TopP
+	}
+	if req.N > 0 {
+		api3Req["n"] = req.N
+	}
+	if len(req.Stop) > 0 {
+		api3Req["stop"] = req.Stop
 	}
 
 	headers := map[string]string{
@@ -81,14 +93,26 @@ func (a *API3Adapter) Completion(ctx context.Context, req OpenAIRequest, model m
 	}
 
 	api3Req := map[string]interface{}{
-		"model":       req.Model,
-		"prompt":      req.Prompt,
-		"stream":      req.Stream,
-		"temperature": req.Temperature,
-		"max_tokens":  req.MaxTokens,
-		"top_p":       req.TopP,
-		"n":           req.N,
-		"stop":        req.Stop,
+		"model":  req.Model,
+		"prompt": req.Prompt,
+	}
+	if req.Stream {
+		api3Req["stream"] = true
+	}
+	if req.Temperature >= 0 {
+		api3Req["temperature"] = req.Temperature
+	}
+	if req.MaxTokens > 0 {
+		api3Req["max_tokens"] = req.MaxTokens
+	}
+	if req.TopP > 0 {
+		api3Req["top_p"] = req.TopP
+	}
+	if req.N > 0 {
+		api3Req["n"] = req.N
+	}
+	if len(req.Stop) > 0 {
+		api3Req["stop"] = req.Stop
 	}
 
 	headers := map[string]string{

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"modelgate/internal/models"
@@ -72,9 +73,11 @@ type Model struct {
 }
 
 type APIError struct {
-	Message string `json:"message"`
-	Type    string `json:"type"`
-	Code    int    `json:"code"`
+	Message    string      `json:"message"`
+	Type       string      `json:"type,omitempty"`
+	Param      interface{} `json:"param,omitempty"`
+	Code       interface{} `json:"code,omitempty"`
+	HTTPStatus int         `json:"-"`
 }
 
 func (e *APIError) Error() string {
@@ -146,22 +149,41 @@ func (c *HTTPClient) Get(ctx context.Context, url string, headers map[string]str
 }
 
 func ParseErrorResponse(resp *http.Response) error {
-	var errResp struct {
-		Error APIError `json:"error"`
-	}
-
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("failed to read error response: %w", err)
 	}
 
-	json.Unmarshal(body, &errResp)
-
-	if errResp.Error.Message == "" {
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+	var errResp struct {
+		Error struct {
+			Message string      `json:"message"`
+			Type    string      `json:"type"`
+			Param   interface{} `json:"param"`
+			Code    interface{} `json:"code"`
+		} `json:"error"`
 	}
 
-	return &errResp.Error
+	if err := json.Unmarshal(body, &errResp); err == nil && errResp.Error.Message != "" {
+		return &APIError{
+			Message:    errResp.Error.Message,
+			Type:       errResp.Error.Type,
+			Param:      errResp.Error.Param,
+			Code:       errResp.Error.Code,
+			HTTPStatus: resp.StatusCode,
+		}
+	}
+
+	trimmed := strings.TrimSpace(string(body))
+	if trimmed == "" {
+		trimmed = http.StatusText(resp.StatusCode)
+	}
+
+	return &APIError{
+		Message:    fmt.Sprintf("upstream HTTP %d: %s", resp.StatusCode, trimmed),
+		Type:       "upstream_error",
+		Code:       resp.StatusCode,
+		HTTPStatus: resp.StatusCode,
+	}
 }
 
 func ConvertChatMessages(messages []ChatMessage) []map[string]string {

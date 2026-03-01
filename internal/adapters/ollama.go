@@ -31,13 +31,23 @@ func (a *OllamaAdapter) ChatCompletion(ctx context.Context, req OpenAIRequest, m
 	}
 
 	ollamaReq := map[string]interface{}{
-		"model":       req.Model,
-		"messages":    ConvertChatMessages(req.Messages),
-		"stream":      req.Stream,
-		"temperature": req.Temperature,
-		"top_p":       req.TopP,
-		"num_predict": req.MaxTokens,
-		"stop":        req.Stop,
+		"model":    req.Model,
+		"messages": ConvertChatMessages(req.Messages),
+	}
+	if req.Stream {
+		ollamaReq["stream"] = true
+	}
+	if req.Temperature >= 0 {
+		ollamaReq["temperature"] = req.Temperature
+	}
+	if req.TopP > 0 {
+		ollamaReq["top_p"] = req.TopP
+	}
+	if req.MaxTokens > 0 {
+		ollamaReq["num_predict"] = req.MaxTokens
+	}
+	if len(req.Stop) > 0 {
+		ollamaReq["stop"] = req.Stop
 	}
 
 	if req.Stream {
@@ -96,13 +106,21 @@ func (a *OllamaAdapter) ChatCompletion(ctx context.Context, req OpenAIRequest, m
 
 func (a *OllamaAdapter) streamChatCompletion(ctx context.Context, baseURL string, req OpenAIRequest) (*OpenAIResponse, error) {
 	ollamaReq := map[string]interface{}{
-		"model":       req.Model,
-		"messages":    ConvertChatMessages(req.Messages),
-		"stream":      true,
-		"temperature": req.Temperature,
-		"top_p":       req.TopP,
-		"num_predict": req.MaxTokens,
-		"stop":        req.Stop,
+		"model":    req.Model,
+		"messages": ConvertChatMessages(req.Messages),
+		"stream":   true,
+	}
+	if req.Temperature >= 0 {
+		ollamaReq["temperature"] = req.Temperature
+	}
+	if req.TopP > 0 {
+		ollamaReq["top_p"] = req.TopP
+	}
+	if req.MaxTokens > 0 {
+		ollamaReq["num_predict"] = req.MaxTokens
+	}
+	if len(req.Stop) > 0 {
+		ollamaReq["stop"] = req.Stop
 	}
 
 	jsonReq, _ := json.Marshal(ollamaReq)
@@ -198,14 +216,26 @@ func (a *OllamaAdapter) Completion(ctx context.Context, req OpenAIRequest, model
 	}
 
 	ollamaReq := map[string]interface{}{
-		"model":       req.Model,
-		"prompt":      req.Prompt,
-		"stream":      req.Stream,
-		"temperature": req.Temperature,
-		"top_p":       req.TopP,
-		"n":           req.N,
-		"stop":        req.Stop,
-		"num_predict": req.MaxTokens,
+		"model":  req.Model,
+		"prompt": req.Prompt,
+	}
+	if req.Stream {
+		ollamaReq["stream"] = true
+	}
+	if req.Temperature >= 0 {
+		ollamaReq["temperature"] = req.Temperature
+	}
+	if req.TopP > 0 {
+		ollamaReq["top_p"] = req.TopP
+	}
+	if req.N > 0 {
+		ollamaReq["n"] = req.N
+	}
+	if len(req.Stop) > 0 {
+		ollamaReq["stop"] = req.Stop
+	}
+	if req.MaxTokens > 0 {
+		ollamaReq["num_predict"] = req.MaxTokens
 	}
 
 	resp, err := a.HTTPClient.Post(ctx, baseURL+"/api/generate", ollamaReq, nil)

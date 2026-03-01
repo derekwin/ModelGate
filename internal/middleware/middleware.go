@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -88,6 +89,11 @@ func (m *AuthMiddleware) Authenticate() gin.HandlerFunc {
 
 func (m *AuthMiddleware) RateLimit() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if m.limiter == nil {
+			c.Next()
+			return
+		}
+
 		apiKeyModel, exists := c.Get("api_key_model")
 		if !exists {
 			c.Next()
@@ -106,7 +112,7 @@ func (m *AuthMiddleware) RateLimit() gin.HandlerFunc {
 
 		if !allowed {
 			remaining, _ := m.limiter.GetRemaining(keyHash)
-			c.Header("X-RateLimit-Remaining", string(rune(remaining)))
+			c.Header("X-RateLimit-Remaining", strconv.Itoa(remaining))
 			c.JSON(http.StatusTooManyRequests, gin.H{
 				"error": gin.H{
 					"message": "Rate limit exceeded",
@@ -119,7 +125,7 @@ func (m *AuthMiddleware) RateLimit() gin.HandlerFunc {
 		}
 
 		remaining, _ := m.limiter.GetRemaining(keyHash)
-		c.Header("X-RateLimit-Remaining", string(rune(remaining)))
+		c.Header("X-RateLimit-Remaining", strconv.Itoa(remaining))
 
 		c.Next()
 	}
