@@ -68,10 +68,10 @@ admin:
 ### Public
 
 - `GET /health` - Health check
-- `GET /v1/models` - List available models
 
 ### Protected (requires Bearer token)
 
+- `GET /v1/models` - List available models
 - `POST /v1/chat/completions` - Chat completion
 - `POST /v1/completions` - Text completion
 
