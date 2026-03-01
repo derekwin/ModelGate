@@ -144,6 +144,9 @@ func Logger() gin.HandlerFunc {
 		statusCode := c.Writer.Status()
 		method := c.Request.Method
 		clientIP := c.ClientIP()
+		if path == "/health" {
+			return
+		}
 
 		var userID int
 		if uid, exists := c.Get("user_id"); exists {
@@ -159,7 +162,15 @@ func Logger() gin.HandlerFunc {
 			}
 		}
 
-		log.Info().
+		event := log.Debug()
+		switch {
+		case statusCode >= http.StatusInternalServerError:
+			event = log.Error()
+		case statusCode >= http.StatusBadRequest:
+			event = log.Warn()
+		}
+
+		event.
 			Str("method", method).
 			Str("path", path).
 			Str("ip", clientIP).

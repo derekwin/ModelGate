@@ -74,7 +74,8 @@ func main() {
 	gatewayService := service.NewGatewayService(adapterFactory)
 
 	gin.SetMode(cfg.Server.Mode)
-	r := gin.Default()
+	r := gin.New()
+	r.Use(gin.Recovery())
 
 	r.Use(middleware.Logger())
 	r.Use(middleware.BodySizeLimit(cfg.MaxBodySize))
