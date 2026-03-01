@@ -3,8 +3,10 @@ package database
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"gorm.io/driver/sqlite"
@@ -64,39 +66,46 @@ func GetDB() *gorm.DB {
 }
 
 func EnsureAdminKey(adminAPIKey string) error {
+	if DB == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
 	var adminKey models.APIKey
 	result := DB.Where("admin = ?", true).First(&adminKey)
 
-	if adminAPIKey == "" {
-		if result.Error == nil {
+	if result.Error == nil {
+		if strings.TrimSpace(adminAPIKey) == "" {
 			return nil
 		}
-		apiKey := "mg_admin_" + generateRandomKey(24)
-		log.Printf("No admin API key configured, auto-generated: %s\n", apiKey)
-		log.Printf("Please save this key - it will not be shown again!\n")
-		adminAPIKey = apiKey
-	} else {
-		log.Printf("Using configured admin API key from config\n")
-	}
 
-	keyHash := hashAPIKey(adminAPIKey)
+		keyHash := hashAPIKey(adminAPIKey)
+		if adminKey.KeyHash == keyHash {
+			return nil
+		}
 
-	if result.Error == nil {
-		if adminKey.KeyHash != keyHash {
-			log.Printf("Updating admin API key in database\n")
-			adminKey.Key = adminAPIKey
-			adminKey.KeyHash = keyHash
-			adminKey.Name = "admin"
-			adminKey.Quota = 100000000
-			adminKey.RateLimit = 10000
-			adminKey.Admin = true
-			adminKey.BaseModel.Status = "active"
-			if err := DB.Save(&adminKey).Error; err != nil {
-				return fmt.Errorf("failed to update admin key: %w", err)
-			}
+		log.Printf("Updating admin API key in database\n")
+		adminKey.Key = adminAPIKey
+		adminKey.KeyHash = keyHash
+		adminKey.Name = "admin"
+		adminKey.Quota = 100000000
+		adminKey.RateLimit = 10000
+		adminKey.Admin = true
+		adminKey.BaseModel.Status = "active"
+		if err := DB.Save(&adminKey).Error; err != nil {
+			return fmt.Errorf("failed to update admin key: %w", err)
 		}
 		return nil
 	}
+
+	if !errors.Is(result.Error, gorm.ErrRecordNotFound) {
+		return fmt.Errorf("failed to query admin key: %w", result.Error)
+	}
+
+	if strings.TrimSpace(adminAPIKey) == "" {
+		return fmt.Errorf("admin api key must be configured for first startup")
+	}
+
+	keyHash := hashAPIKey(adminAPIKey)
 
 	newKey := models.APIKey{
 		Key:       adminAPIKey,
@@ -113,15 +122,6 @@ func EnsureAdminKey(adminAPIKey string) error {
 	}
 
 	return nil
-}
-
-func generateRandomKey(n int) string {
-	const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	result := make([]byte, n)
-	for i := range result {
-		result[i] = letters[i%len(letters)]
-	}
-	return string(result)
 }
 
 func hashAPIKey(apiKey string) string {

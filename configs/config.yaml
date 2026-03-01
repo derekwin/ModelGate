@@ -23,7 +23,7 @@ timeout: 300s
 max_body_size: 5242880
 
 admin:
-  api_key: "123456"  # Set your admin API key, leave empty to auto-generate on first start
+  api_key: ""  # Required on first startup (or set MG_ADMIN_API_KEY)
 
 adapters:
   ollama:

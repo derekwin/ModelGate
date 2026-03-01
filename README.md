@@ -48,18 +48,18 @@ Edit `configs/config.yaml`:
 | quota.default_tokens | 1000000 | Default token quota |
 | timeout | 300s | Request timeout |
 | max_body_size | 5242880 | 5MB body limit |
-| admin.api_key | "" | Admin API key (leave empty to auto-generate) |
+| admin.api_key | "" | Admin API key (required on first startup) |
 
 ### Admin API Key Configuration
 
 ```yaml
 # configs/config.yaml
 admin:
-  api_key: "your_secure_admin_key"  # Set custom key or leave empty
+  api_key: "your_secure_admin_key"  # Required on first startup
 ```
 
 **Behavior:**
-- **First start (empty DB)**: Uses configured key or auto-generates one
+- **First start (empty DB)**: Requires configured key (or `MG_ADMIN_API_KEY`)
 - **Config change**: Updates database on server restart
 - **Environment override**: `MG_ADMIN_API_KEY=your_key ./modelgate`
 
