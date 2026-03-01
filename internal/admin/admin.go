@@ -2,7 +2,10 @@ package admin
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -236,7 +239,7 @@ func createModel(c *gin.Context) {
 		BackendType string `json:"backend_type"`
 		BaseURL     string `json:"base_url"`
 		APIKey      string `json:"api_key"`
-		Enabled     bool   `json:"enabled"`
+		Enabled     *bool  `json:"enabled"`
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -244,12 +247,26 @@ func createModel(c *gin.Context) {
 		return
 	}
 
+	if strings.TrimSpace(input.Name) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
+		return
+	}
+	if !isSupportedBackend(input.BackendType) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported backend_type"})
+		return
+	}
+
+	enabled := true
+	if input.Enabled != nil {
+		enabled = *input.Enabled
+	}
+
 	newModel := models.Model{
 		Name:        input.Name,
 		BackendType: input.BackendType,
 		BaseURL:     input.BaseURL,
 		APIKey:      input.APIKey,
-		Enabled:     input.Enabled,
+		Enabled:     enabled,
 	}
 	newModel.BaseModel.Status = "active"
 
@@ -269,12 +286,16 @@ func updateModel(c *gin.Context) {
 		BackendType string `json:"backend_type"`
 		BaseURL     string `json:"base_url"`
 		APIKey      string `json:"api_key"`
-		Enabled     bool   `json:"enabled"`
+		Enabled     *bool  `json:"enabled"`
 		Status      string `json:"status"`
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if input.BackendType != "" && !isSupportedBackend(input.BackendType) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported backend_type"})
 		return
 	}
 
@@ -298,7 +319,9 @@ func updateModel(c *gin.Context) {
 	if input.APIKey != "" {
 		updates["api_key"] = input.APIKey
 	}
-	updates["enabled"] = input.Enabled
+	if input.Enabled != nil {
+		updates["enabled"] = *input.Enabled
+	}
 	if input.Status != "" {
 		updates["status"] = input.Status
 	}
@@ -392,19 +415,16 @@ func syncModels(c *gin.Context) {
 }
 
 func fetchBackendModels(backend, baseURL string) ([]string, error) {
-	client := &http.Client{}
-	var url string
-
-	switch backend {
-	case "ollama":
-		url = baseURL + "/api/tags"
-	case "vllm", "openai", "llamacpp", "api3":
-		url = baseURL + "/v1/models"
-	default:
-		return nil, nil
+	client := &http.Client{Timeout: 10 * time.Second}
+	url, err := backendModelsURL(backend, baseURL)
+	if err != nil {
+		return nil, err
 	}
 
-	req, _ := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -412,7 +432,7 @@ func fetchBackendModels(backend, baseURL string) ([]string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, nil
+		return nil, fmt.Errorf("backend %s returned status %d", backend, resp.StatusCode)
 	}
 
 	var data map[string]interface{}

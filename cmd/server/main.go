@@ -516,6 +516,8 @@ func writeServiceError(c *gin.Context, err error) {
 	switch {
 	case strings.Contains(message, "not found"):
 		writeOpenAIError(c, http.StatusBadRequest, message, "invalid_request_error", nil)
+	case strings.Contains(message, "unsupported backend"):
+		writeOpenAIError(c, http.StatusBadRequest, message, "invalid_request_error", nil)
 	case strings.Contains(message, "quota"):
 		writeOpenAIError(c, http.StatusForbidden, message, "insufficient_quota", nil)
 	default:

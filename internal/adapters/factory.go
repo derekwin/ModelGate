@@ -36,7 +36,7 @@ func (f *AdapterFactory) GetAdapter(backendType string) Adapter {
 	case "api3":
 		return f.api3
 	default:
-		return f.ollama
+		return nil
 	}
 }
 
@@ -53,6 +53,6 @@ func (f *AdapterFactory) GetAdapterForModel(model models.Model) Adapter {
 	case "api3":
 		return f.api3
 	default:
-		return f.ollama
+		return nil
 	}
 }

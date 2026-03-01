@@ -518,21 +518,22 @@ func syncModels(c *cli.Context) error {
 }
 
 func fetchBackendModels(client *http.Client, backend, baseURL string) ([]map[string]string, error) {
-	var url string
 	var parseFunc func([]byte) ([]map[string]string, error)
 
 	switch backend {
 	case "ollama":
-		url = baseURL + "/api/tags"
 		parseFunc = parseOllamaModels
 	case "vllm", "openai", "llamacpp":
-		url = baseURL + "/v1/models"
 		parseFunc = parseOpenAIModels
 	case "api3":
-		url = baseURL + "/v1/models"
 		parseFunc = parseOpenAIModels
 	default:
 		return nil, fmt.Errorf("unknown backend: %s", backend)
+	}
+
+	url, err := backendModelsURL(backend, baseURL)
+	if err != nil {
+		return nil, err
 	}
 
 	resp, err := client.Get(url)
@@ -551,6 +552,26 @@ func fetchBackendModels(client *http.Client, backend, baseURL string) ([]map[str
 	}
 
 	return parseFunc(data)
+}
+
+func backendModelsURL(backend, baseURL string) (string, error) {
+	normalizedBackend := strings.ToLower(strings.TrimSpace(backend))
+	normalizedBaseURL := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if normalizedBaseURL == "" {
+		return "", fmt.Errorf("base url is empty")
+	}
+
+	switch normalizedBackend {
+	case "ollama":
+		return normalizedBaseURL + "/api/tags", nil
+	case "vllm", "openai", "llamacpp", "api3":
+		if strings.HasSuffix(normalizedBaseURL, "/v1") {
+			return normalizedBaseURL + "/models", nil
+		}
+		return normalizedBaseURL + "/v1/models", nil
+	default:
+		return "", fmt.Errorf("unknown backend: %s", backend)
+	}
 }
 
 func parseOllamaModels(data []byte) ([]map[string]string, error) {

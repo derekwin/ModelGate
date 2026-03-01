@@ -63,6 +63,9 @@ func (s *GatewayService) ChatCompletion(ctx context.Context, req adapters.OpenAI
 	}
 
 	adapter := s.adapterFactory.GetAdapterForModel(*model)
+	if adapter == nil {
+		return nil, fmt.Errorf("unsupported backend type: %s", model.BackendType)
+	}
 	resp, err := adapter.ChatCompletion(ctx, req, *model)
 	if err != nil {
 		return nil, err
@@ -93,6 +96,9 @@ func (s *GatewayService) Completion(ctx context.Context, req adapters.OpenAIRequ
 	}
 
 	adapter := s.adapterFactory.GetAdapterForModel(*model)
+	if adapter == nil {
+		return nil, fmt.Errorf("unsupported backend type: %s", model.BackendType)
+	}
 	resp, err := adapter.Completion(ctx, req, *model)
 	if err != nil {
 		return nil, err
@@ -123,6 +129,9 @@ func (s *GatewayService) ListBackendModels(ctx context.Context, modelName string
 	}
 
 	adapter := s.adapterFactory.GetAdapterForModel(*model)
+	if adapter == nil {
+		return nil, fmt.Errorf("unsupported backend type: %s", model.BackendType)
+	}
 	return adapter.Models(ctx, *model)
 }
 
