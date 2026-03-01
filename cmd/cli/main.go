@@ -113,6 +113,7 @@ func main() {
 							&cli.StringFlag{Name: "name", Aliases: []string{"n"}, Required: true},
 							&cli.StringFlag{Name: "backend", Aliases: []string{"b"}, Required: true},
 							&cli.StringFlag{Name: "base-url", Aliases: []string{"u"}},
+							&cli.StringFlag{Name: "backend-api-key", Aliases: []string{"p"}},
 						}),
 						Action: createModel,
 					},
@@ -140,7 +141,7 @@ func main() {
 				Name:  "sync",
 				Usage: "Sync models from upstream backends",
 				Flags: joinFlags(globalFlags(), []cli.Flag{
-					&cli.StringFlag{Name: "config", Aliases: []string{"c"}, DefaultText: "./configs/config.yaml"},
+					&cli.StringFlag{Name: "config", Aliases: []string{"c"}, Value: "./configs/config.yaml"},
 					&cli.BoolFlag{Name: "dry-run", Aliases: []string{"d"}},
 				}),
 				Action: syncModels,
@@ -357,7 +358,7 @@ func createModel(c *cli.Context) error {
 		"base_url": "%s",
 		"api_key": "%s",
 		"enabled": true
-	}`, c.String("name"), c.String("backend"), c.String("base-url"), c.String("api-key"))
+	}`, c.String("name"), c.String("backend"), c.String("base-url"), c.String("backend-api-key"))
 
 	_, err := makeRequest("POST", "/admin/models", strings.NewReader(payload))
 	if err != nil {

@@ -159,6 +159,7 @@ export MODELGATE_API_KEY=your_admin_key
 | -i | --allowed-ips | Allowed IPs |
 | -b | --backend | ollama/vllm/llamacpp/openai/api3 |
 | -u | --base-url | Backend URL |
+| -p | --backend-api-key | Upstream/backend API key for model routing |
 | -e | --enabled | Enable/disable |
 
 ## Example Usage
