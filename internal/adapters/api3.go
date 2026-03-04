@@ -11,16 +11,18 @@ import (
 )
 
 type API3Adapter struct {
-	HTTPClient *HTTPClient
-	BaseURL    string
-	APIKey     string
+	HTTPClient   *HTTPClient
+	BaseURL      string
+	APIKey       string
+	FallbackURLs []string
 }
 
-func NewAPI3Adapter(baseURL, apiKey string, timeout int64) *API3Adapter {
+func NewAPI3Adapter(baseURL, apiKey string, fallbackURLs []string, timeoutDuration time.Duration, resilience ResilienceOptions) *API3Adapter {
 	return &API3Adapter{
-		HTTPClient: NewHTTPClient(time.Duration(timeout) * time.Second),
-		BaseURL:    baseURL,
-		APIKey:     apiKey,
+		HTTPClient:   NewHTTPClient(timeoutDuration, resilience),
+		BaseURL:      baseURL,
+		APIKey:       apiKey,
+		FallbackURLs: fallbackURLs,
 	}
 }
 
@@ -63,7 +65,11 @@ func (a *API3Adapter) ChatCompletion(ctx context.Context, req OpenAIRequest, mod
 		"x-api-key":    apiKey,
 	}
 
-	resp, err := a.HTTPClient.Post(ctx, baseURL+"/chat/completions", api3Req, headers)
+	chatPath := "/chat/completions"
+	primaryURL := BuildEndpoint(baseURL, chatPath)
+	fallbackURLs := BuildFallbackEndpoints(a.FallbackURLs, chatPath)
+
+	resp, err := a.HTTPClient.PostWithFailover(ctx, primaryURL, fallbackURLs, api3Req, headers)
 	if err != nil {
 		return nil, fmt.Errorf("api3 request failed: %w", err)
 	}
@@ -120,7 +126,11 @@ func (a *API3Adapter) Completion(ctx context.Context, req OpenAIRequest, model m
 		"x-api-key":    apiKey,
 	}
 
-	resp, err := a.HTTPClient.Post(ctx, baseURL+"/completions", api3Req, headers)
+	completionPath := "/completions"
+	primaryURL := BuildEndpoint(baseURL, completionPath)
+	fallbackURLs := BuildFallbackEndpoints(a.FallbackURLs, completionPath)
+
+	resp, err := a.HTTPClient.PostWithFailover(ctx, primaryURL, fallbackURLs, api3Req, headers)
 	if err != nil {
 		return nil, fmt.Errorf("api3 request failed: %w", err)
 	}
@@ -153,7 +163,11 @@ func (a *API3Adapter) Models(ctx context.Context, model models.Model) (*OpenAIMo
 		"x-api-key": apiKey,
 	}
 
-	resp, err := a.HTTPClient.Get(ctx, baseURL+"/models", headers)
+	modelsPath := "/models"
+	primaryURL := BuildEndpoint(baseURL, modelsPath)
+	fallbackURLs := BuildFallbackEndpoints(a.FallbackURLs, modelsPath)
+
+	resp, err := a.HTTPClient.GetWithFailover(ctx, primaryURL, fallbackURLs, headers)
 	if err != nil {
 		return nil, fmt.Errorf("api3 models request failed: %w", err)
 	}

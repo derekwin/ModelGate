@@ -14,12 +14,47 @@ type AdapterFactory struct {
 }
 
 func NewAdapterFactory(cfg *config.Config) *AdapterFactory {
+	resilience := ResilienceOptions{
+		RetryAttempts:       cfg.Resilience.RetryAttempts,
+		RetryBackoff:        cfg.Resilience.RetryBackoff,
+		FailureThreshold:    cfg.Resilience.CircuitBreaker.FailureThreshold,
+		OpenTimeout:         cfg.Resilience.CircuitBreaker.OpenTimeout,
+		HalfOpenMaxRequests: cfg.Resilience.CircuitBreaker.HalfOpenMaxRequests,
+	}
+
 	return &AdapterFactory{
-		ollama:   NewOllamaAdapter(cfg.Adapters.Ollama.BaseURL, int64(cfg.Timeout.Seconds())),
-		vllm:     NewVLLMAdapter(cfg.Adapters.VLLM.BaseURL, int64(cfg.Timeout.Seconds())),
-		llamacpp: NewLlamaCppAdapter(cfg.Adapters.LlamaCPP.BaseURL, int64(cfg.Timeout.Seconds())),
-		openai:   NewOpenAIAdapter(cfg.Adapters.OpenAI.BaseURL, "", int64(cfg.Timeout.Seconds())),
-		api3:     NewAPI3Adapter(cfg.Adapters.API3.BaseURL, "", int64(cfg.Timeout.Seconds())),
+		ollama: NewOllamaAdapter(
+			cfg.Adapters.Ollama.BaseURL,
+			cfg.Adapters.Ollama.FallbackURLs,
+			cfg.Timeout,
+			resilience,
+		),
+		vllm: NewVLLMAdapter(
+			cfg.Adapters.VLLM.BaseURL,
+			cfg.Adapters.VLLM.FallbackURLs,
+			cfg.Timeout,
+			resilience,
+		),
+		llamacpp: NewLlamaCppAdapter(
+			cfg.Adapters.LlamaCPP.BaseURL,
+			cfg.Adapters.LlamaCPP.FallbackURLs,
+			cfg.Timeout,
+			resilience,
+		),
+		openai: NewOpenAIAdapter(
+			cfg.Adapters.OpenAI.BaseURL,
+			"",
+			cfg.Adapters.OpenAI.FallbackURLs,
+			cfg.Timeout,
+			resilience,
+		),
+		api3: NewAPI3Adapter(
+			cfg.Adapters.API3.BaseURL,
+			"",
+			cfg.Adapters.API3.FallbackURLs,
+			cfg.Timeout,
+			resilience,
+		),
 	}
 }
 

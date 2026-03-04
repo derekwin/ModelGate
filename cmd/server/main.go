@@ -72,21 +72,19 @@ func main() {
 
 	adapterFactory := adapters.NewAdapterFactory(cfg)
 	gatewayService := service.NewGatewayService(adapterFactory)
+	authMiddleware := middleware.NewAuthMiddleware(rateLimiter)
 
 	gin.SetMode(cfg.Server.Mode)
-	r := gin.New()
-	r.Use(gin.Recovery())
+	dataRouter := gin.New()
+	dataRouter.Use(gin.Recovery())
+	dataRouter.Use(middleware.Logger())
+	dataRouter.Use(middleware.BodySizeLimit(cfg.MaxBodySize))
 
-	r.Use(middleware.Logger())
-	r.Use(middleware.BodySizeLimit(cfg.MaxBodySize))
-
-	r.GET("/health", func(c *gin.Context) {
+	dataRouter.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
-	authMiddleware := middleware.NewAuthMiddleware(rateLimiter)
-
-	v1 := r.Group("/v1")
+	v1 := dataRouter.Group("/v1")
 	v1.Use(authMiddleware.Authenticate())
 	v1.Use(authMiddleware.RateLimit())
 	{
@@ -95,38 +93,71 @@ func main() {
 		v1.GET("/models", handleListModels(gatewayService))
 	}
 
-	adminGroup := r.Group("/admin")
+	adminRouter := gin.New()
+	adminRouter.Use(gin.Recovery())
+	adminRouter.Use(middleware.Logger())
+	adminRouter.Use(middleware.BodySizeLimit(cfg.MaxBodySize))
+
+	adminRouter.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+
+	adminGroup := adminRouter.Group("/admin")
 	adminGroup.Use(authMiddleware.Authenticate())
 	admin.RegisterRoutes(adminGroup)
 
-	r.Static("/static/", "./admin")
-	r.GET("/", func(c *gin.Context) {
+	adminRouter.Static("/static/", "./admin")
+	adminRouter.GET("/", func(c *gin.Context) {
 		c.File("./admin/index.html")
 	})
 
-	srv := &http.Server{
+	dataSrv := &http.Server{
 		Addr:    fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
-		Handler: r,
+		Handler: dataRouter,
 	}
 
+	adminSrv := &http.Server{
+		Addr:    fmt.Sprintf("%s:%d", cfg.Admin.Host, cfg.Admin.Port),
+		Handler: adminRouter,
+	}
+
+	serverErrs := make(chan error, 2)
+
 	go func() {
-		logger.Info().Int("port", cfg.Server.Port).Msg("Server starting")
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Fatal().Err(err).Msg("Server failed")
+		logger.Info().Int("port", cfg.Server.Port).Msg("Data plane server starting")
+		if err := dataSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			serverErrs <- fmt.Errorf("data plane server failed: %w", err)
+		}
+	}()
+
+	go func() {
+		logger.Info().Int("port", cfg.Admin.Port).Msg("Control plane server starting")
+		if err := adminSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			serverErrs <- fmt.Errorf("control plane server failed: %w", err)
 		}
 	}()
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+
+	select {
+	case <-quit:
+		logger.Info().Msg("Shutdown signal received")
+	case err := <-serverErrs:
+		logger.Error().Err(err).Msg("Server runtime error received")
+	}
 
 	logger.Info().Msg("Shutting down server...")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := srv.Shutdown(ctx); err != nil {
-		logger.Fatal().Err(err).Msg("Server forced to shutdown")
+	if err := dataSrv.Shutdown(ctx); err != nil {
+		logger.Error().Err(err).Msg("Data plane server forced to shutdown")
+	}
+
+	if err := adminSrv.Shutdown(ctx); err != nil {
+		logger.Error().Err(err).Msg("Control plane server forced to shutdown")
 	}
 
 	logger.Info().Msg("Server exited")

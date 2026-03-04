@@ -2,7 +2,6 @@ package adapters
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,16 +13,18 @@ import (
 )
 
 type OpenAIAdapter struct {
-	HTTPClient *HTTPClient
-	BaseURL    string
-	APIKey     string
+	HTTPClient   *HTTPClient
+	BaseURL      string
+	APIKey       string
+	FallbackURLs []string
 }
 
-func NewOpenAIAdapter(baseURL, apiKey string, timeout int64) *OpenAIAdapter {
+func NewOpenAIAdapter(baseURL, apiKey string, fallbackURLs []string, timeoutDuration time.Duration, resilience ResilienceOptions) *OpenAIAdapter {
 	return &OpenAIAdapter{
-		HTTPClient: NewHTTPClient(time.Duration(timeout) * time.Second),
-		BaseURL:    baseURL,
-		APIKey:     apiKey,
+		HTTPClient:   NewHTTPClient(timeoutDuration, resilience),
+		BaseURL:      baseURL,
+		APIKey:       apiKey,
+		FallbackURLs: fallbackURLs,
 	}
 }
 
@@ -66,11 +67,15 @@ func (a *OpenAIAdapter) ChatCompletion(ctx context.Context, req OpenAIRequest, m
 		"Authorization": "Bearer " + apiKey,
 	}
 
+	chatPath := "/chat/completions"
+	primaryURL := BuildEndpoint(baseURL, chatPath)
+	fallbackURLs := BuildFallbackEndpoints(a.FallbackURLs, chatPath)
+
 	if req.Stream {
-		return a.streamChatCompletion(ctx, baseURL, req, headers)
+		return a.streamChatCompletion(ctx, primaryURL, fallbackURLs, req, headers)
 	}
 
-	resp, err := a.HTTPClient.Post(ctx, baseURL+"/chat/completions", openaiReq, headers)
+	resp, err := a.HTTPClient.PostWithFailover(ctx, primaryURL, fallbackURLs, openaiReq, headers)
 	if err != nil {
 		return nil, fmt.Errorf("openai request failed: %w", err)
 	}
@@ -88,7 +93,7 @@ func (a *OpenAIAdapter) ChatCompletion(ctx context.Context, req OpenAIRequest, m
 	return &openaiResp, nil
 }
 
-func (a *OpenAIAdapter) streamChatCompletion(ctx context.Context, baseURL string, req OpenAIRequest, headers map[string]string) (*OpenAIResponse, error) {
+func (a *OpenAIAdapter) streamChatCompletion(ctx context.Context, primaryURL string, fallbackURLs []string, req OpenAIRequest, headers map[string]string) (*OpenAIResponse, error) {
 	openaiReq := map[string]interface{}{
 		"model":    req.Model,
 		"messages": req.Messages,
@@ -110,17 +115,7 @@ func (a *OpenAIAdapter) streamChatCompletion(ctx context.Context, baseURL string
 		openaiReq["stop"] = req.Stop
 	}
 
-	jsonReq, _ := json.Marshal(openaiReq)
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", baseURL+"/chat/completions", bytes.NewBuffer(jsonReq))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	for k, v := range headers {
-		httpReq.Header.Set(k, v)
-	}
-
-	resp, err := a.HTTPClient.Client.Do(httpReq)
+	resp, err := a.HTTPClient.PostWithFailover(ctx, primaryURL, fallbackURLs, openaiReq, headers)
 	if err != nil {
 		return nil, fmt.Errorf("openai stream request failed: %w", err)
 	}
@@ -244,7 +239,11 @@ func (a *OpenAIAdapter) Completion(ctx context.Context, req OpenAIRequest, model
 		"Authorization": "Bearer " + apiKey,
 	}
 
-	resp, err := a.HTTPClient.Post(ctx, baseURL+"/completions", openaiReq, headers)
+	completionPath := "/completions"
+	primaryURL := BuildEndpoint(baseURL, completionPath)
+	fallbackURLs := BuildFallbackEndpoints(a.FallbackURLs, completionPath)
+
+	resp, err := a.HTTPClient.PostWithFailover(ctx, primaryURL, fallbackURLs, openaiReq, headers)
 	if err != nil {
 		return nil, fmt.Errorf("openai request failed: %w", err)
 	}
@@ -277,7 +276,11 @@ func (a *OpenAIAdapter) Models(ctx context.Context, model models.Model) (*OpenAI
 		"Authorization": "Bearer " + apiKey,
 	}
 
-	resp, err := a.HTTPClient.Get(ctx, baseURL+"/models", headers)
+	modelsPath := "/models"
+	primaryURL := BuildEndpoint(baseURL, modelsPath)
+	fallbackURLs := BuildFallbackEndpoints(a.FallbackURLs, modelsPath)
+
+	resp, err := a.HTTPClient.GetWithFailover(ctx, primaryURL, fallbackURLs, headers)
 	if err != nil {
 		return nil, fmt.Errorf("openai models request failed: %w", err)
 	}

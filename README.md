@@ -31,7 +31,7 @@ make build
 ./modelgate
 ```
 
-The server will start on `http://localhost:8080`
+Data plane starts on `http://localhost:8080` and control plane starts on `http://localhost:8081`
 
 **Note**: On first start, check logs for the admin API key or set it in `configs/config.yaml`
 
@@ -42,6 +42,7 @@ Edit `configs/config.yaml`:
 | Setting | Default | Description |
 |---------|---------|-------------|
 | server.port | 8080 | HTTP port |
+| admin.port | 8081 | Admin/UI HTTP port |
 | database.path | ./data/modelgate.db | SQLite database path |
 | redis.addr | localhost:6379 | Redis address |
 | rate_limit.rpm | 60 | Requests per minute |
@@ -94,7 +95,7 @@ Two ways to manage API keys and models:
 
 ### 1. Web Admin UI
 
-Access at `http://ip:8080/`
+Access at `http://ip:8081/`
 
 ![Login](docs/imgs/login.png)
 
@@ -116,17 +117,17 @@ make build-cli
 
 | Option | Alias | Default |
 |--------|-------|---------|
-| --server | -s | http://ip:8080 |
+| --server | -s | http://ip:8081 |
 | --api-key | -k | (required) |
 | --config | -c | ./configs/config.yaml |
 
 ```bash
 # Via env vars
-export MODELGATE_SERVER=http://localhost:8080
+export MODELGATE_SERVER=http://localhost:8081
 export MODELGATE_API_KEY=your_admin_key
 
 # Via flags
-./modelgate-cli -s http://localhost:8080 -k your_admin_key <command>
+./modelgate-cli -s http://localhost:8081 -k your_admin_key <command>
 ```
 
 #### Commands

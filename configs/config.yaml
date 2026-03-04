@@ -24,18 +24,33 @@ max_body_size: 5242880
 
 admin:
   api_key: ""  # Required on first startup (or set MG_ADMIN_API_KEY)
+  host: 0.0.0.0
+  port: 8081
 
 adapters:
   ollama:
     base_url: http://localhost:11434
+    fallback_urls: []
   vllm:
     base_url: http://localhost:8000
+    fallback_urls: []
   llamacpp:
     base_url: http://localhost:8080
+    fallback_urls: []
   openai:
     base_url: https://api.openai.com/v1
+    fallback_urls: []
   api3:
     base_url: https://api.ai.gov/v1
+    fallback_urls: []
+
+resilience:
+  retry_attempts: 2
+  retry_backoff: 200ms
+  circuit_breaker:
+    failure_threshold: 5
+    open_timeout: 30s
+    half_open_max_requests: 1
 
 log:
   level: info

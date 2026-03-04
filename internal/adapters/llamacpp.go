@@ -2,7 +2,6 @@ package adapters
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,14 +13,16 @@ import (
 )
 
 type LlamaCppAdapter struct {
-	HTTPClient *HTTPClient
-	BaseURL    string
+	HTTPClient   *HTTPClient
+	BaseURL      string
+	FallbackURLs []string
 }
 
-func NewLlamaCppAdapter(baseURL string, timeout int64) *LlamaCppAdapter {
+func NewLlamaCppAdapter(baseURL string, fallbackURLs []string, timeoutDuration time.Duration, resilience ResilienceOptions) *LlamaCppAdapter {
 	return &LlamaCppAdapter{
-		HTTPClient: NewHTTPClient(time.Duration(timeout) * time.Second),
-		BaseURL:    baseURL,
+		HTTPClient:   NewHTTPClient(timeoutDuration, resilience),
+		BaseURL:      baseURL,
+		FallbackURLs: fallbackURLs,
 	}
 }
 
@@ -54,16 +55,19 @@ func (a *LlamaCppAdapter) ChatCompletion(ctx context.Context, req OpenAIRequest,
 	headers := map[string]string{
 		"Content-Type": "application/json",
 	}
-
 	if model.APIKey != "" {
 		headers["Authorization"] = "Bearer " + model.APIKey
 	}
 
+	chatPath := "/v1/chat/completions"
+	primaryURL := BuildEndpoint(baseURL, chatPath)
+	fallbackURLs := BuildFallbackEndpoints(a.FallbackURLs, chatPath)
+
 	if req.Stream {
-		return a.streamChatCompletion(ctx, baseURL, req, headers)
+		return a.streamChatCompletion(ctx, primaryURL, fallbackURLs, req, headers)
 	}
 
-	resp, err := a.HTTPClient.Post(ctx, baseURL+"/v1/chat/completions", llamaReq, headers)
+	resp, err := a.HTTPClient.PostWithFailover(ctx, primaryURL, fallbackURLs, llamaReq, headers)
 	if err != nil {
 		return nil, fmt.Errorf("llama.cpp request failed: %w", err)
 	}
@@ -81,7 +85,7 @@ func (a *LlamaCppAdapter) ChatCompletion(ctx context.Context, req OpenAIRequest,
 	return &llamaResp, nil
 }
 
-func (a *LlamaCppAdapter) streamChatCompletion(ctx context.Context, baseURL string, req OpenAIRequest, headers map[string]string) (*OpenAIResponse, error) {
+func (a *LlamaCppAdapter) streamChatCompletion(ctx context.Context, primaryURL string, fallbackURLs []string, req OpenAIRequest, headers map[string]string) (*OpenAIResponse, error) {
 	llamaReq := map[string]interface{}{
 		"model":    req.Model,
 		"messages": req.Messages,
@@ -100,17 +104,7 @@ func (a *LlamaCppAdapter) streamChatCompletion(ctx context.Context, baseURL stri
 		llamaReq["stop"] = req.Stop
 	}
 
-	jsonReq, _ := json.Marshal(llamaReq)
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", baseURL+"/v1/chat/completions", bytes.NewBuffer(jsonReq))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	for k, v := range headers {
-		httpReq.Header.Set(k, v)
-	}
-
-	resp, err := a.HTTPClient.Client.Do(httpReq)
+	resp, err := a.HTTPClient.PostWithFailover(ctx, primaryURL, fallbackURLs, llamaReq, headers)
 	if err != nil {
 		return nil, fmt.Errorf("llama.cpp stream request failed: %w", err)
 	}
@@ -222,12 +216,15 @@ func (a *LlamaCppAdapter) Completion(ctx context.Context, req OpenAIRequest, mod
 	headers := map[string]string{
 		"Content-Type": "application/json",
 	}
-
 	if model.APIKey != "" {
 		headers["Authorization"] = "Bearer " + model.APIKey
 	}
 
-	resp, err := a.HTTPClient.Post(ctx, baseURL+"/v1/completions", llamaReq, headers)
+	completionPath := "/v1/completions"
+	primaryURL := BuildEndpoint(baseURL, completionPath)
+	fallbackURLs := BuildFallbackEndpoints(a.FallbackURLs, completionPath)
+
+	resp, err := a.HTTPClient.PostWithFailover(ctx, primaryURL, fallbackURLs, llamaReq, headers)
 	if err != nil {
 		return nil, fmt.Errorf("llama.cpp request failed: %w", err)
 	}
@@ -251,7 +248,11 @@ func (a *LlamaCppAdapter) Models(ctx context.Context, model models.Model) (*Open
 		baseURL = a.BaseURL
 	}
 
-	resp, err := a.HTTPClient.Get(ctx, baseURL+"/v1/models", nil)
+	modelsPath := "/v1/models"
+	primaryURL := BuildEndpoint(baseURL, modelsPath)
+	fallbackURLs := BuildFallbackEndpoints(a.FallbackURLs, modelsPath)
+
+	resp, err := a.HTTPClient.GetWithFailover(ctx, primaryURL, fallbackURLs, nil)
 	if err != nil {
 		return nil, fmt.Errorf("llama.cpp models request failed: %w", err)
 	}

@@ -1,7 +1,6 @@
 package adapters
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -13,14 +12,16 @@ import (
 )
 
 type OllamaAdapter struct {
-	HTTPClient *HTTPClient
-	BaseURL    string
+	HTTPClient   *HTTPClient
+	BaseURL      string
+	FallbackURLs []string
 }
 
-func NewOllamaAdapter(baseURL string, timeout int64) *OllamaAdapter {
+func NewOllamaAdapter(baseURL string, fallbackURLs []string, timeoutDuration time.Duration, resilience ResilienceOptions) *OllamaAdapter {
 	return &OllamaAdapter{
-		HTTPClient: NewHTTPClient(time.Duration(timeout) * time.Second),
-		BaseURL:    baseURL,
+		HTTPClient:   NewHTTPClient(timeoutDuration, resilience),
+		BaseURL:      baseURL,
+		FallbackURLs: fallbackURLs,
 	}
 }
 
@@ -50,11 +51,15 @@ func (a *OllamaAdapter) ChatCompletion(ctx context.Context, req OpenAIRequest, m
 		ollamaReq["stop"] = req.Stop
 	}
 
+	chatPath := "/api/chat"
+	primaryURL := BuildEndpoint(baseURL, chatPath)
+	fallbackURLs := BuildFallbackEndpoints(a.FallbackURLs, chatPath)
+
 	if req.Stream {
-		return a.streamChatCompletion(ctx, baseURL, req)
+		return a.streamChatCompletion(ctx, primaryURL, fallbackURLs, req)
 	}
 
-	resp, err := a.HTTPClient.Post(ctx, baseURL+"/api/chat", ollamaReq, nil)
+	resp, err := a.HTTPClient.PostWithFailover(ctx, primaryURL, fallbackURLs, ollamaReq, nil)
 	if err != nil {
 		return nil, fmt.Errorf("ollama request failed: %w", err)
 	}
@@ -104,7 +109,7 @@ func (a *OllamaAdapter) ChatCompletion(ctx context.Context, req OpenAIRequest, m
 	}, nil
 }
 
-func (a *OllamaAdapter) streamChatCompletion(ctx context.Context, baseURL string, req OpenAIRequest) (*OpenAIResponse, error) {
+func (a *OllamaAdapter) streamChatCompletion(ctx context.Context, primaryURL string, fallbackURLs []string, req OpenAIRequest) (*OpenAIResponse, error) {
 	ollamaReq := map[string]interface{}{
 		"model":    req.Model,
 		"messages": ConvertChatMessages(req.Messages),
@@ -123,14 +128,7 @@ func (a *OllamaAdapter) streamChatCompletion(ctx context.Context, baseURL string
 		ollamaReq["stop"] = req.Stop
 	}
 
-	jsonReq, _ := json.Marshal(ollamaReq)
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", baseURL+"/api/chat", bytes.NewBuffer(jsonReq))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := a.HTTPClient.Client.Do(httpReq)
+	resp, err := a.HTTPClient.PostWithFailover(ctx, primaryURL, fallbackURLs, ollamaReq, nil)
 	if err != nil {
 		return nil, fmt.Errorf("ollama stream request failed: %w", err)
 	}
@@ -238,7 +236,11 @@ func (a *OllamaAdapter) Completion(ctx context.Context, req OpenAIRequest, model
 		ollamaReq["num_predict"] = req.MaxTokens
 	}
 
-	resp, err := a.HTTPClient.Post(ctx, baseURL+"/api/generate", ollamaReq, nil)
+	completionPath := "/api/generate"
+	primaryURL := BuildEndpoint(baseURL, completionPath)
+	fallbackURLs := BuildFallbackEndpoints(a.FallbackURLs, completionPath)
+
+	resp, err := a.HTTPClient.PostWithFailover(ctx, primaryURL, fallbackURLs, ollamaReq, nil)
 	if err != nil {
 		return nil, fmt.Errorf("ollama request failed: %w", err)
 	}
@@ -288,7 +290,11 @@ func (a *OllamaAdapter) Models(ctx context.Context, model models.Model) (*OpenAI
 		baseURL = a.BaseURL
 	}
 
-	resp, err := a.HTTPClient.Get(ctx, baseURL+"/api/tags", nil)
+	modelsPath := "/api/tags"
+	primaryURL := BuildEndpoint(baseURL, modelsPath)
+	fallbackURLs := BuildFallbackEndpoints(a.FallbackURLs, modelsPath)
+
+	resp, err := a.HTTPClient.GetWithFailover(ctx, primaryURL, fallbackURLs, nil)
 	if err != nil {
 		return nil, fmt.Errorf("ollama models request failed: %w", err)
 	}
@@ -322,24 +328,4 @@ func (a *OllamaAdapter) Models(ctx context.Context, model models.Model) (*OpenAI
 		Object: "list",
 		Data:   models,
 	}, nil
-}
-
-func generateID() string {
-	return randomString(8)
-}
-
-func getTimestamp() int64 {
-	return nowTimestamp()
-}
-
-func nowTimestamp() int64 {
-	return 1700000000
-}
-
-func randomString(n int) string {
-	result := make([]byte, n)
-	for i := range result {
-		result[i] = byte(i*17%26 + 'a')
-	}
-	return string(result)
 }
