@@ -242,6 +242,10 @@ modelgate/
 └── Makefile
 ```
 
+## Roadmap
+
+- Add Anthropic API compatibility
+
 ## Environment Variables
 
 All config options can be set via environment variables with `MG_` prefix:
