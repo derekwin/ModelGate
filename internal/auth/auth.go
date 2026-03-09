@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"net"
 
 	"modelgate/internal/database"
 	"modelgate/internal/models"
@@ -65,6 +66,21 @@ func CheckIPAllowed(apiKey *models.APIKey, ip string) bool {
 	allowedIPs := splitIPs(apiKey.AllowedIPs)
 	for _, allowed := range allowedIPs {
 		if allowed == ip {
+			return true
+		}
+		if _, cidr, err := net.ParseCIDR(allowed); err == nil {
+			parsedIP := net.ParseIP(ip)
+			if parsedIP != nil && cidr.Contains(parsedIP) {
+				return true
+			}
+		}
+		if parsedAllowed := net.ParseIP(allowed); parsedAllowed != nil {
+			parsedIP := net.ParseIP(ip)
+			if parsedIP != nil && parsedAllowed.Equal(parsedIP) {
+				return true
+			}
+		}
+		if allowed == "*" {
 			return true
 		}
 	}

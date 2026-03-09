@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -94,6 +95,7 @@ func Load(path string) (*Config, error) {
 		viper.SetConfigType("yaml")
 		viper.SetConfigFile(path)
 		viper.SetEnvPrefix("MG")
+		viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 		viper.AutomaticEnv()
 
 		viper.SetDefault("server.host", "0.0.0.0")
@@ -137,5 +139,15 @@ func Get() *Config {
 }
 
 func Reload() error {
-	return viper.ReadInConfig()
+	if err := viper.ReadInConfig(); err != nil {
+		return fmt.Errorf("failed to read config: %w", err)
+	}
+
+	reloaded := &Config{}
+	if err := viper.Unmarshal(reloaded); err != nil {
+		return fmt.Errorf("failed to unmarshal config: %w", err)
+	}
+
+	cfg = reloaded
+	return nil
 }
