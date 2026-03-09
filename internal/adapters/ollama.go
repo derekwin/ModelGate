@@ -31,9 +31,14 @@ func (a *OllamaAdapter) ChatCompletion(ctx context.Context, req OpenAIRequest, m
 		baseURL = a.BaseURL
 	}
 
+	messages, err := extractRawMessages(req)
+	if err != nil {
+		return nil, err
+	}
+
 	ollamaReq := map[string]interface{}{
 		"model":    req.Model,
-		"messages": ConvertChatMessages(req.Messages),
+		"messages": convertToOllamaMessages(messages),
 	}
 	if req.Stream {
 		ollamaReq["stream"] = true
@@ -56,7 +61,7 @@ func (a *OllamaAdapter) ChatCompletion(ctx context.Context, req OpenAIRequest, m
 	fallbackURLs := BuildFallbackEndpoints(a.FallbackURLs, chatPath)
 
 	if req.Stream {
-		return a.streamChatCompletion(ctx, primaryURL, fallbackURLs, req)
+		return a.streamChatCompletion(ctx, primaryURL, fallbackURLs, req, ollamaReq)
 	}
 
 	resp, err := a.HTTPClient.PostWithFailover(ctx, primaryURL, fallbackURLs, ollamaReq, nil)
@@ -109,25 +114,7 @@ func (a *OllamaAdapter) ChatCompletion(ctx context.Context, req OpenAIRequest, m
 	}, nil
 }
 
-func (a *OllamaAdapter) streamChatCompletion(ctx context.Context, primaryURL string, fallbackURLs []string, req OpenAIRequest) (*OpenAIResponse, error) {
-	ollamaReq := map[string]interface{}{
-		"model":    req.Model,
-		"messages": ConvertChatMessages(req.Messages),
-		"stream":   true,
-	}
-	if req.Temperature >= 0 {
-		ollamaReq["temperature"] = req.Temperature
-	}
-	if req.TopP > 0 {
-		ollamaReq["top_p"] = req.TopP
-	}
-	if req.MaxTokens > 0 {
-		ollamaReq["num_predict"] = req.MaxTokens
-	}
-	if len(req.Stop) > 0 {
-		ollamaReq["stop"] = req.Stop
-	}
-
+func (a *OllamaAdapter) streamChatCompletion(ctx context.Context, primaryURL string, fallbackURLs []string, req OpenAIRequest, ollamaReq map[string]interface{}) (*OpenAIResponse, error) {
 	resp, err := a.HTTPClient.PostWithFailover(ctx, primaryURL, fallbackURLs, ollamaReq, nil)
 	if err != nil {
 		return nil, fmt.Errorf("ollama stream request failed: %w", err)
@@ -141,10 +128,14 @@ func (a *OllamaAdapter) streamChatCompletion(ctx context.Context, primaryURL str
 	dec := json.NewDecoder(resp.Body)
 	var fullContent string
 	var totalPrompt, totalCompletion int
+	streamID := fmt.Sprintf("chatcmpl-%s", generateID())
+	created := getTimestamp()
+	sentRole := false
 
 	for {
 		var chunk struct {
 			Message struct {
+				Role    string `json:"role"`
 				Content string `json:"content"`
 			} `json:"message"`
 			Done  bool `json:"done"`
@@ -165,22 +156,74 @@ func (a *OllamaAdapter) streamChatCompletion(ctx context.Context, primaryURL str
 		totalPrompt = chunk.Usage.PromptTokens
 		totalCompletion = chunk.Usage.CompletionTokens
 
-		if chunk.Done {
-			break
-		}
-
 		if req.StreamFunc != nil {
-			data := map[string]interface{}{
-				"choices": []map[string]interface{}{
-					{
-						"delta": map[string]string{
-							"content": chunk.Message.Content,
+			if !sentRole {
+				roleChunk := map[string]interface{}{
+					"id":      streamID,
+					"object":  "chat.completion.chunk",
+					"created": created,
+					"model":   req.Model,
+					"choices": []map[string]interface{}{
+						{
+							"index": 0,
+							"delta": map[string]string{
+								"role": "assistant",
+							},
+							"finish_reason": nil,
 						},
 					},
-				},
+				}
+				jsonData, _ := json.Marshal(roleChunk)
+				req.StreamFunc("data: " + string(jsonData) + "\n\n")
+				sentRole = true
 			}
-			jsonData, _ := json.Marshal(data)
-			req.StreamFunc("data: " + string(jsonData) + "\n\n")
+
+			if chunk.Message.Content != "" {
+				data := map[string]interface{}{
+					"id":      streamID,
+					"object":  "chat.completion.chunk",
+					"created": created,
+					"model":   req.Model,
+					"choices": []map[string]interface{}{
+						{
+							"index": 0,
+							"delta": map[string]string{
+								"content": chunk.Message.Content,
+							},
+							"finish_reason": nil,
+						},
+					},
+				}
+				jsonData, _ := json.Marshal(data)
+				req.StreamFunc("data: " + string(jsonData) + "\n\n")
+			}
+
+			if chunk.Done {
+				doneChunk := map[string]interface{}{
+					"id":      streamID,
+					"object":  "chat.completion.chunk",
+					"created": created,
+					"model":   req.Model,
+					"choices": []map[string]interface{}{
+						{
+							"index":         0,
+							"delta":         map[string]interface{}{},
+							"finish_reason": "stop",
+						},
+					},
+					"usage": map[string]int{
+						"prompt_tokens":     totalPrompt,
+						"completion_tokens": totalCompletion,
+						"total_tokens":      totalPrompt + totalCompletion,
+					},
+				}
+				jsonData, _ := json.Marshal(doneChunk)
+				req.StreamFunc("data: " + string(jsonData) + "\n\n")
+			}
+		}
+
+		if chunk.Done {
+			break
 		}
 	}
 
@@ -213,9 +256,14 @@ func (a *OllamaAdapter) Completion(ctx context.Context, req OpenAIRequest, model
 		baseURL = a.BaseURL
 	}
 
+	prompt, err := extractPromptString(req)
+	if err != nil {
+		return nil, err
+	}
+
 	ollamaReq := map[string]interface{}{
 		"model":  req.Model,
-		"prompt": req.Prompt,
+		"prompt": prompt,
 	}
 	if req.Stream {
 		ollamaReq["stream"] = true
@@ -239,6 +287,10 @@ func (a *OllamaAdapter) Completion(ctx context.Context, req OpenAIRequest, model
 	completionPath := "/api/generate"
 	primaryURL := BuildEndpoint(baseURL, completionPath)
 	fallbackURLs := BuildFallbackEndpoints(a.FallbackURLs, completionPath)
+
+	if req.Stream {
+		return a.streamCompletion(ctx, primaryURL, fallbackURLs, req, ollamaReq)
+	}
 
 	resp, err := a.HTTPClient.PostWithFailover(ctx, primaryURL, fallbackURLs, ollamaReq, nil)
 	if err != nil {
@@ -266,7 +318,7 @@ func (a *OllamaAdapter) Completion(ctx context.Context, req OpenAIRequest, model
 
 	return &OpenAIResponse{
 		ID:      fmt.Sprintf("cmpl-%s", generateID()),
-		Object:  "text.completion",
+		Object:  "text_completion",
 		Created: getTimestamp(),
 		Model:   req.Model,
 		Choices: []Choice{
@@ -280,6 +332,112 @@ func (a *OllamaAdapter) Completion(ctx context.Context, req OpenAIRequest, model
 			PromptTokens:     int64(ollamaResp.Usage.PromptTokens),
 			CompletionTokens: int64(ollamaResp.Usage.CompletionTokens),
 			TotalTokens:      int64(ollamaResp.Usage.TotalTokens),
+		},
+	}, nil
+}
+
+func (a *OllamaAdapter) streamCompletion(ctx context.Context, primaryURL string, fallbackURLs []string, req OpenAIRequest, ollamaReq map[string]interface{}) (*OpenAIResponse, error) {
+	resp, err := a.HTTPClient.PostWithFailover(ctx, primaryURL, fallbackURLs, ollamaReq, nil)
+	if err != nil {
+		return nil, fmt.Errorf("ollama stream request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, ParseErrorResponse(resp)
+	}
+
+	dec := json.NewDecoder(resp.Body)
+	var fullText string
+	var totalPrompt, totalCompletion int
+	streamID := fmt.Sprintf("cmpl-%s", generateID())
+	created := getTimestamp()
+
+	for {
+		var chunk struct {
+			Response string `json:"response"`
+			Done     bool   `json:"done"`
+			Usage    struct {
+				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens int `json:"completion_tokens"`
+			} `json:"usage"`
+		}
+
+		if err := dec.Decode(&chunk); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, fmt.Errorf("failed to decode stream chunk: %w", err)
+		}
+
+		fullText += chunk.Response
+		totalPrompt = chunk.Usage.PromptTokens
+		totalCompletion = chunk.Usage.CompletionTokens
+
+		if req.StreamFunc != nil {
+			if chunk.Response != "" {
+				data := map[string]interface{}{
+					"id":      streamID,
+					"object":  "text_completion",
+					"created": created,
+					"model":   req.Model,
+					"choices": []map[string]interface{}{
+						{
+							"index":         0,
+							"text":          chunk.Response,
+							"finish_reason": nil,
+						},
+					},
+				}
+				jsonData, _ := json.Marshal(data)
+				req.StreamFunc("data: " + string(jsonData) + "\n\n")
+			}
+
+			if chunk.Done {
+				doneChunk := map[string]interface{}{
+					"id":      streamID,
+					"object":  "text_completion",
+					"created": created,
+					"model":   req.Model,
+					"choices": []map[string]interface{}{
+						{
+							"index":         0,
+							"text":          "",
+							"finish_reason": "stop",
+						},
+					},
+					"usage": map[string]int{
+						"prompt_tokens":     totalPrompt,
+						"completion_tokens": totalCompletion,
+						"total_tokens":      totalPrompt + totalCompletion,
+					},
+				}
+				jsonData, _ := json.Marshal(doneChunk)
+				req.StreamFunc("data: " + string(jsonData) + "\n\n")
+			}
+		}
+
+		if chunk.Done {
+			break
+		}
+	}
+
+	return &OpenAIResponse{
+		ID:      streamID,
+		Object:  "text_completion",
+		Created: created,
+		Model:   req.Model,
+		Choices: []Choice{
+			{
+				Index:        0,
+				Text:         fullText,
+				FinishReason: "stop",
+			},
+		},
+		Usage: Usage{
+			PromptTokens:     int64(totalPrompt),
+			CompletionTokens: int64(totalCompletion),
+			TotalTokens:      int64(totalPrompt + totalCompletion),
 		},
 	}, nil
 }
@@ -328,4 +486,20 @@ func (a *OllamaAdapter) Models(ctx context.Context, model models.Model) (*OpenAI
 		Object: "list",
 		Data:   models,
 	}, nil
+}
+
+func convertToOllamaMessages(messages []map[string]interface{}) []map[string]string {
+	result := make([]map[string]string, 0, len(messages))
+	for _, message := range messages {
+		role, _ := message["role"].(string)
+		item := map[string]string{
+			"role":    role,
+			"content": normalizeMessageTextContent(message["content"]),
+		}
+		if name, ok := message["name"].(string); ok && name != "" {
+			item["name"] = name
+		}
+		result = append(result, item)
+	}
+	return result
 }

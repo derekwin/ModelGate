@@ -37,29 +37,6 @@ func (a *API3Adapter) ChatCompletion(ctx context.Context, req OpenAIRequest, mod
 		apiKey = a.APIKey
 	}
 
-	api3Req := map[string]interface{}{
-		"model":    req.Model,
-		"messages": req.Messages,
-	}
-	if req.Stream {
-		api3Req["stream"] = true
-	}
-	if req.Temperature >= 0 {
-		api3Req["temperature"] = req.Temperature
-	}
-	if req.MaxTokens > 0 {
-		api3Req["max_tokens"] = req.MaxTokens
-	}
-	if req.TopP > 0 {
-		api3Req["top_p"] = req.TopP
-	}
-	if req.N > 0 {
-		api3Req["n"] = req.N
-	}
-	if len(req.Stop) > 0 {
-		api3Req["stop"] = req.Stop
-	}
-
 	headers := map[string]string{
 		"Content-Type": "application/json",
 		"x-api-key":    apiKey,
@@ -69,7 +46,11 @@ func (a *API3Adapter) ChatCompletion(ctx context.Context, req OpenAIRequest, mod
 	primaryURL := BuildEndpoint(baseURL, chatPath)
 	fallbackURLs := BuildFallbackEndpoints(a.FallbackURLs, chatPath)
 
-	resp, err := a.HTTPClient.PostWithFailover(ctx, primaryURL, fallbackURLs, api3Req, headers)
+	if req.Stream {
+		return streamOpenAICompatible(ctx, a.HTTPClient, primaryURL, fallbackURLs, req, headers, "chat")
+	}
+
+	resp, err := a.HTTPClient.PostWithFailover(ctx, primaryURL, fallbackURLs, req.Payload(), headers)
 	if err != nil {
 		return nil, fmt.Errorf("api3 request failed: %w", err)
 	}
@@ -98,29 +79,6 @@ func (a *API3Adapter) Completion(ctx context.Context, req OpenAIRequest, model m
 		apiKey = a.APIKey
 	}
 
-	api3Req := map[string]interface{}{
-		"model":  req.Model,
-		"prompt": req.Prompt,
-	}
-	if req.Stream {
-		api3Req["stream"] = true
-	}
-	if req.Temperature >= 0 {
-		api3Req["temperature"] = req.Temperature
-	}
-	if req.MaxTokens > 0 {
-		api3Req["max_tokens"] = req.MaxTokens
-	}
-	if req.TopP > 0 {
-		api3Req["top_p"] = req.TopP
-	}
-	if req.N > 0 {
-		api3Req["n"] = req.N
-	}
-	if len(req.Stop) > 0 {
-		api3Req["stop"] = req.Stop
-	}
-
 	headers := map[string]string{
 		"Content-Type": "application/json",
 		"x-api-key":    apiKey,
@@ -130,7 +88,11 @@ func (a *API3Adapter) Completion(ctx context.Context, req OpenAIRequest, model m
 	primaryURL := BuildEndpoint(baseURL, completionPath)
 	fallbackURLs := BuildFallbackEndpoints(a.FallbackURLs, completionPath)
 
-	resp, err := a.HTTPClient.PostWithFailover(ctx, primaryURL, fallbackURLs, api3Req, headers)
+	if req.Stream {
+		return streamOpenAICompatible(ctx, a.HTTPClient, primaryURL, fallbackURLs, req, headers, "completion")
+	}
+
+	resp, err := a.HTTPClient.PostWithFailover(ctx, primaryURL, fallbackURLs, req.Payload(), headers)
 	if err != nil {
 		return nil, fmt.Errorf("api3 request failed: %w", err)
 	}

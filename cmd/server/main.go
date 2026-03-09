@@ -91,6 +91,7 @@ func main() {
 		v1.POST("/chat/completions", handleChatCompletions(gatewayService))
 		v1.POST("/completions", handleCompletions(gatewayService))
 		v1.GET("/models", handleListModels(gatewayService))
+		v1.GET("/models/:id", handleRetrieveModel(gatewayService))
 	}
 
 	adminRouter := gin.New()
@@ -165,18 +166,8 @@ func main() {
 
 func handleChatCompletions(svc *service.GatewayService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var req struct {
-			Model       string                   `json:"model"`
-			Messages    []map[string]interface{} `json:"messages" binding:"required"`
-			Stream      bool                     `json:"stream"`
-			Temperature *float64                 `json:"temperature,omitempty"`
-			MaxTokens   *int                     `json:"max_tokens,omitempty"`
-			TopP        *float64                 `json:"top_p,omitempty"`
-			N           *int                     `json:"n,omitempty"`
-			Stop        interface{}              `json:"stop,omitempty"`
-		}
-
-		if err := c.ShouldBindJSON(&req); err != nil {
+		rawReq, err := decodeRawRequest(c)
+		if err != nil {
 			writeOpenAIError(c, http.StatusBadRequest, err.Error(), "invalid_request_error", nil)
 			return
 		}
@@ -188,59 +179,60 @@ func handleChatCompletions(svc *service.GatewayService) gin.HandlerFunc {
 		}
 
 		key := apiKeyModel.(*models.APIKey)
-		if len(req.Messages) == 0 {
+		messages, ok := rawReq["messages"].([]interface{})
+		if !ok || len(messages) == 0 {
 			writeOpenAIError(c, http.StatusBadRequest, "messages must not be empty", "invalid_request_error", nil)
 			return
 		}
 
-		// Auto-select model based on tier if not provided
-		modelName := req.Model
-		if modelName == "" {
-			if key.DefaultModel != "" {
-				modelName = key.DefaultModel
-			} else {
-				writeOpenAIError(c, http.StatusBadRequest, "model is required", "invalid_request_error", nil)
-				return
-			}
+		modelName, err := resolveModelName(rawReq, key.DefaultModel)
+		if err != nil {
+			writeOpenAIError(c, http.StatusBadRequest, err.Error(), "invalid_request_error", nil)
+			return
 		}
+		rawReq["model"] = modelName
 
-		temperature := 1.0
-		if req.Temperature != nil {
-			temperature = *req.Temperature
+		temperature, err := extractFloat64Field(rawReq, "temperature", 1.0)
+		if err != nil {
+			writeOpenAIError(c, http.StatusBadRequest, err.Error(), "invalid_request_error", nil)
+			return
 		}
 		if temperature < 0 || temperature > 2 {
 			writeOpenAIError(c, http.StatusBadRequest, "temperature must be between 0 and 2", "invalid_request_error", nil)
 			return
 		}
 
-		maxTokens := 0
-		if req.MaxTokens != nil {
-			maxTokens = *req.MaxTokens
+		maxTokens, err := extractMaxTokens(rawReq)
+		if err != nil {
+			writeOpenAIError(c, http.StatusBadRequest, err.Error(), "invalid_request_error", nil)
+			return
 		}
 		if maxTokens < 0 {
 			writeOpenAIError(c, http.StatusBadRequest, "max_tokens must be positive", "invalid_request_error", nil)
 			return
 		}
 
-		topP := 1.0
-		if req.TopP != nil {
-			topP = *req.TopP
+		topP, err := extractFloat64Field(rawReq, "top_p", 1.0)
+		if err != nil {
+			writeOpenAIError(c, http.StatusBadRequest, err.Error(), "invalid_request_error", nil)
+			return
 		}
 		if topP <= 0 || topP > 1 {
 			writeOpenAIError(c, http.StatusBadRequest, "top_p must be between 0 and 1", "invalid_request_error", nil)
 			return
 		}
 
-		n := 1
-		if req.N != nil {
-			n = *req.N
+		n, err := extractIntField(rawReq, "n", 1)
+		if err != nil {
+			writeOpenAIError(c, http.StatusBadRequest, err.Error(), "invalid_request_error", nil)
+			return
 		}
 		if n <= 0 {
 			writeOpenAIError(c, http.StatusBadRequest, "n must be a positive integer", "invalid_request_error", nil)
 			return
 		}
 
-		stop, err := normalizeStopSequences(req.Stop)
+		stop, err := normalizeStopSequences(rawReq["stop"])
 		if err != nil {
 			writeOpenAIError(c, http.StatusBadRequest, err.Error(), "invalid_request_error", nil)
 			return
@@ -253,49 +245,25 @@ func handleChatCompletions(svc *service.GatewayService) gin.HandlerFunc {
 			}
 		}
 
+		stream, err := extractBoolField(rawReq, "stream", false)
+		if err != nil {
+			writeOpenAIError(c, http.StatusBadRequest, err.Error(), "invalid_request_error", nil)
+			return
+		}
+
 		adapterReq := adapters.OpenAIRequest{
 			Model:       modelName,
-			Stream:      req.Stream,
+			Stream:      stream,
 			Temperature: temperature,
 			MaxTokens:   maxTokens,
 			TopP:        topP,
 			N:           n,
 			Stop:        stop,
-		}
-
-		for _, msg := range req.Messages {
-			role, ok := msg["role"].(string)
-			if !ok {
-				writeOpenAIError(c, http.StatusBadRequest, "message role must be a string", "invalid_request_error", nil)
-				return
-			}
-
-			var content string
-			switch v := msg["content"].(type) {
-			case string:
-				content = v
-			case []interface{}:
-				// For multimodal content, extract text from first text block
-				for _, item := range v {
-					if itemMap, ok := item.(map[string]interface{}); ok {
-						if text, ok := itemMap["text"].(string); ok {
-							content = text
-							break
-						}
-					}
-				}
-			default:
-				content = fmt.Sprintf("%v", v)
-			}
-
-			adapterReq.Messages = append(adapterReq.Messages, adapters.ChatMessage{
-				Role:    role,
-				Content: content,
-			})
+			RawBody:     rawReq,
 		}
 
 		streamStarted := false
-		if req.Stream {
+		if stream {
 			adapterReq.StreamFunc = func(chunk string) {
 				if !streamStarted {
 					streamStarted = true
@@ -311,23 +279,14 @@ func handleChatCompletions(svc *service.GatewayService) gin.HandlerFunc {
 
 		resp, err := svc.ChatCompletion(c.Request.Context(), adapterReq, key.ID, modelName)
 		if err != nil {
-			if req.Stream && streamStarted {
-				errData, _ := json.Marshal(gin.H{
-					"error": gin.H{
-						"message": err.Error(),
-						"type":    "server_error",
-					},
-				})
-				_, _ = c.Writer.WriteString("data: " + string(errData) + "\n\n")
-				_, _ = c.Writer.WriteString("data: [DONE]\n\n")
-				c.Writer.Flush()
+			if stream && streamStarted {
 				return
 			}
 			writeServiceError(c, err)
 			return
 		}
 
-		if req.Stream {
+		if stream {
 			c.Header("Content-Type", "text/event-stream")
 			c.Header("Cache-Control", "no-cache")
 			c.Header("Connection", "keep-alive")
@@ -343,18 +302,8 @@ func handleChatCompletions(svc *service.GatewayService) gin.HandlerFunc {
 
 func handleCompletions(svc *service.GatewayService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var req struct {
-			Model       string      `json:"model"`
-			Prompt      string      `json:"prompt"`
-			Stream      bool        `json:"stream"`
-			Temperature *float64    `json:"temperature,omitempty"`
-			MaxTokens   *int        `json:"max_tokens,omitempty"`
-			TopP        *float64    `json:"top_p,omitempty"`
-			N           *int        `json:"n,omitempty"`
-			Stop        interface{} `json:"stop,omitempty"`
-		}
-
-		if err := c.ShouldBindJSON(&req); err != nil {
+		rawReq, err := decodeRawRequest(c)
+		if err != nil {
 			writeOpenAIError(c, http.StatusBadRequest, err.Error(), "invalid_request_error", nil)
 			return
 		}
@@ -367,54 +316,59 @@ func handleCompletions(svc *service.GatewayService) gin.HandlerFunc {
 
 		key := apiKeyModel.(*models.APIKey)
 
-		// Auto-select model based on tier if not provided
-		modelName := req.Model
-		if modelName == "" {
-			if key.DefaultModel != "" {
-				modelName = key.DefaultModel
-			} else {
-				writeOpenAIError(c, http.StatusBadRequest, "model is required", "invalid_request_error", nil)
-				return
-			}
+		if _, ok := rawReq["prompt"]; !ok {
+			writeOpenAIError(c, http.StatusBadRequest, "prompt is required", "invalid_request_error", nil)
+			return
 		}
 
-		temperature := 1.0
-		if req.Temperature != nil {
-			temperature = *req.Temperature
+		modelName, err := resolveModelName(rawReq, key.DefaultModel)
+		if err != nil {
+			writeOpenAIError(c, http.StatusBadRequest, err.Error(), "invalid_request_error", nil)
+			return
+		}
+		rawReq["model"] = modelName
+
+		temperature, err := extractFloat64Field(rawReq, "temperature", 1.0)
+		if err != nil {
+			writeOpenAIError(c, http.StatusBadRequest, err.Error(), "invalid_request_error", nil)
+			return
 		}
 		if temperature < 0 || temperature > 2 {
 			writeOpenAIError(c, http.StatusBadRequest, "temperature must be between 0 and 2", "invalid_request_error", nil)
 			return
 		}
 
-		maxTokens := 0
-		if req.MaxTokens != nil {
-			maxTokens = *req.MaxTokens
+		maxTokens, err := extractMaxTokens(rawReq)
+		if err != nil {
+			writeOpenAIError(c, http.StatusBadRequest, err.Error(), "invalid_request_error", nil)
+			return
 		}
 		if maxTokens < 0 {
 			writeOpenAIError(c, http.StatusBadRequest, "max_tokens must be positive", "invalid_request_error", nil)
 			return
 		}
 
-		topP := 1.0
-		if req.TopP != nil {
-			topP = *req.TopP
+		topP, err := extractFloat64Field(rawReq, "top_p", 1.0)
+		if err != nil {
+			writeOpenAIError(c, http.StatusBadRequest, err.Error(), "invalid_request_error", nil)
+			return
 		}
 		if topP <= 0 || topP > 1 {
 			writeOpenAIError(c, http.StatusBadRequest, "top_p must be between 0 and 1", "invalid_request_error", nil)
 			return
 		}
 
-		n := 1
-		if req.N != nil {
-			n = *req.N
+		n, err := extractIntField(rawReq, "n", 1)
+		if err != nil {
+			writeOpenAIError(c, http.StatusBadRequest, err.Error(), "invalid_request_error", nil)
+			return
 		}
 		if n <= 0 {
 			writeOpenAIError(c, http.StatusBadRequest, "n must be a positive integer", "invalid_request_error", nil)
 			return
 		}
 
-		stop, err := normalizeStopSequences(req.Stop)
+		stop, err := normalizeStopSequences(rawReq["stop"])
 		if err != nil {
 			writeOpenAIError(c, http.StatusBadRequest, err.Error(), "invalid_request_error", nil)
 			return
@@ -427,20 +381,60 @@ func handleCompletions(svc *service.GatewayService) gin.HandlerFunc {
 			}
 		}
 
+		stream, err := extractBoolField(rawReq, "stream", false)
+		if err != nil {
+			writeOpenAIError(c, http.StatusBadRequest, err.Error(), "invalid_request_error", nil)
+			return
+		}
+
+		prompt, ok := rawReq["prompt"].(string)
+		if !ok {
+			prompt = ""
+		}
+
 		adapterReq := adapters.OpenAIRequest{
 			Model:       modelName,
-			Prompt:      req.Prompt,
-			Stream:      req.Stream,
+			Prompt:      prompt,
+			Stream:      stream,
 			Temperature: temperature,
 			MaxTokens:   maxTokens,
 			TopP:        topP,
 			N:           n,
 			Stop:        stop,
+			RawBody:     rawReq,
+		}
+
+		streamStarted := false
+		if stream {
+			adapterReq.StreamFunc = func(chunk string) {
+				if !streamStarted {
+					streamStarted = true
+					c.Header("Content-Type", "text/event-stream")
+					c.Header("Cache-Control", "no-cache")
+					c.Header("Connection", "keep-alive")
+					c.Status(http.StatusOK)
+				}
+				_, _ = c.Writer.WriteString(chunk)
+				c.Writer.Flush()
+			}
 		}
 
 		resp, err := svc.Completion(c.Request.Context(), adapterReq, key.ID, modelName)
 		if err != nil {
+			if stream && streamStarted {
+				return
+			}
 			writeServiceError(c, err)
+			return
+		}
+
+		if stream {
+			c.Header("Content-Type", "text/event-stream")
+			c.Header("Cache-Control", "no-cache")
+			c.Header("Connection", "keep-alive")
+			c.Status(http.StatusOK)
+			_, _ = c.Writer.WriteString("data: [DONE]\n\n")
+			c.Writer.Flush()
 			return
 		}
 
@@ -471,6 +465,19 @@ func handleListModels(svc *service.GatewayService) gin.HandlerFunc {
 	}
 }
 
+func handleRetrieveModel(svc *service.GatewayService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		modelName := c.Param("id")
+		model, err := svc.GetModel(modelName)
+		if err != nil {
+			writeOpenAIError(c, http.StatusNotFound, err.Error(), "invalid_request_error", nil)
+			return
+		}
+
+		c.JSON(http.StatusOK, buildOpenAIModelResponse(*model))
+	}
+}
+
 func buildOpenAIModelsResponse(modelList []models.Model) adapters.OpenAIModelsResponse {
 	resp := adapters.OpenAIModelsResponse{
 		Object: "list",
@@ -478,15 +485,19 @@ func buildOpenAIModelsResponse(modelList []models.Model) adapters.OpenAIModelsRe
 	}
 
 	for _, m := range modelList {
-		resp.Data = append(resp.Data, adapters.Model{
-			ID:      m.Name,
-			Object:  "model",
-			Created: m.CreatedAt.Unix(),
-			OwnedBy: m.BackendType,
-		})
+		resp.Data = append(resp.Data, buildOpenAIModelResponse(m))
 	}
 
 	return resp
+}
+
+func buildOpenAIModelResponse(m models.Model) adapters.Model {
+	return adapters.Model{
+		ID:      m.Name,
+		Object:  "model",
+		Created: m.CreatedAt.Unix(),
+		OwnedBy: m.BackendType,
+	}
 }
 
 func normalizeStopSequences(raw interface{}) ([]string, error) {
@@ -523,6 +534,96 @@ func normalizeStopSequences(raw interface{}) ([]string, error) {
 	default:
 		return nil, fmt.Errorf("stop must be a string or array of strings")
 	}
+}
+
+func decodeRawRequest(c *gin.Context) (map[string]interface{}, error) {
+	var payload map[string]interface{}
+	decoder := json.NewDecoder(c.Request.Body)
+	decoder.UseNumber()
+	if err := decoder.Decode(&payload); err != nil {
+		return nil, err
+	}
+	if payload == nil {
+		return nil, fmt.Errorf("request body must be a JSON object")
+	}
+	return payload, nil
+}
+
+func resolveModelName(raw map[string]interface{}, defaultModel string) (string, error) {
+	if rawModel, exists := raw["model"]; exists {
+		modelName, ok := rawModel.(string)
+		if !ok {
+			return "", fmt.Errorf("model must be a string")
+		}
+		if strings.TrimSpace(modelName) != "" {
+			return modelName, nil
+		}
+	}
+	if strings.TrimSpace(defaultModel) == "" {
+		return "", fmt.Errorf("model is required")
+	}
+	return defaultModel, nil
+}
+
+func extractBoolField(raw map[string]interface{}, key string, defaultValue bool) (bool, error) {
+	value, exists := raw[key]
+	if !exists {
+		return defaultValue, nil
+	}
+	boolValue, ok := value.(bool)
+	if !ok {
+		return false, fmt.Errorf("%s must be a boolean", key)
+	}
+	return boolValue, nil
+}
+
+func extractFloat64Field(raw map[string]interface{}, key string, defaultValue float64) (float64, error) {
+	value, exists := raw[key]
+	if !exists || value == nil {
+		return defaultValue, nil
+	}
+	switch typed := value.(type) {
+	case float64:
+		return typed, nil
+	case json.Number:
+		parsed, err := typed.Float64()
+		if err != nil {
+			return 0, fmt.Errorf("%s must be a number", key)
+		}
+		return parsed, nil
+	default:
+		return 0, fmt.Errorf("%s must be a number", key)
+	}
+}
+
+func extractIntField(raw map[string]interface{}, key string, defaultValue int) (int, error) {
+	value, exists := raw[key]
+	if !exists || value == nil {
+		return defaultValue, nil
+	}
+
+	switch typed := value.(type) {
+	case json.Number:
+		parsed, err := typed.Int64()
+		if err != nil {
+			return 0, fmt.Errorf("%s must be an integer", key)
+		}
+		return int(parsed), nil
+	case float64:
+		if typed != float64(int(typed)) {
+			return 0, fmt.Errorf("%s must be an integer", key)
+		}
+		return int(typed), nil
+	default:
+		return 0, fmt.Errorf("%s must be an integer", key)
+	}
+}
+
+func extractMaxTokens(raw map[string]interface{}) (int, error) {
+	if maxCompletionTokens, exists := raw["max_completion_tokens"]; exists && maxCompletionTokens != nil {
+		return extractIntField(raw, "max_completion_tokens", 0)
+	}
+	return extractIntField(raw, "max_tokens", 0)
 }
 
 func writeServiceError(c *gin.Context, err error) {

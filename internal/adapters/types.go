@@ -21,16 +21,17 @@ type Adapter interface {
 }
 
 type OpenAIRequest struct {
-	Model       string        `json:"model"`
-	Messages    []ChatMessage `json:"messages,omitempty"`
-	Prompt      string        `json:"prompt,omitempty"`
-	Stream      bool          `json:"stream,omitempty"`
-	Temperature float64       `json:"temperature,omitempty"`
-	MaxTokens   int           `json:"max_tokens,omitempty"`
-	TopP        float64       `json:"top_p,omitempty"`
-	N           int           `json:"n,omitempty"`
-	Stop        []string      `json:"stop,omitempty"`
-	StreamFunc  func(string)  `json:"-"`
+	Model       string                 `json:"model"`
+	Messages    []ChatMessage          `json:"messages,omitempty"`
+	Prompt      string                 `json:"prompt,omitempty"`
+	Stream      bool                   `json:"stream,omitempty"`
+	Temperature float64                `json:"temperature,omitempty"`
+	MaxTokens   int                    `json:"max_tokens,omitempty"`
+	TopP        float64                `json:"top_p,omitempty"`
+	N           int                    `json:"n,omitempty"`
+	Stop        []string               `json:"stop,omitempty"`
+	RawBody     map[string]interface{} `json:"-"`
+	StreamFunc  func(string)           `json:"-"`
 }
 
 type ChatMessage struct {
@@ -449,4 +450,64 @@ func ConvertChatMessages(messages []ChatMessage) []map[string]string {
 		}
 	}
 	return result
+}
+
+func (r OpenAIRequest) Payload() map[string]interface{} {
+	if len(r.RawBody) > 0 {
+		payload, ok := cloneJSONValue(r.RawBody).(map[string]interface{})
+		if ok {
+			if r.Model != "" {
+				payload["model"] = r.Model
+			}
+			return payload
+		}
+	}
+
+	payload := map[string]interface{}{
+		"model": r.Model,
+	}
+	if len(r.Messages) > 0 {
+		payload["messages"] = r.Messages
+	}
+	if r.Prompt != "" {
+		payload["prompt"] = r.Prompt
+	}
+	if r.Stream {
+		payload["stream"] = true
+	}
+	if r.Temperature >= 0 {
+		payload["temperature"] = r.Temperature
+	}
+	if r.MaxTokens > 0 {
+		payload["max_tokens"] = r.MaxTokens
+	}
+	if r.TopP > 0 {
+		payload["top_p"] = r.TopP
+	}
+	if r.N > 0 {
+		payload["n"] = r.N
+	}
+	if len(r.Stop) > 0 {
+		payload["stop"] = r.Stop
+	}
+	return payload
+}
+
+func cloneJSONValue(value interface{}) interface{} {
+	switch typed := value.(type) {
+	case map[string]interface{}:
+		cloned := make(map[string]interface{}, len(typed))
+		for key, item := range typed {
+			cloned[key] = cloneJSONValue(item)
+		}
+		return cloned
+	case []interface{}:
+		cloned := make([]interface{}, len(typed))
+		for i, item := range typed {
+			cloned[i] = cloneJSONValue(item)
+		}
+		return cloned
+	default:
+		return typed
+	}
 }
