@@ -1,6 +1,7 @@
 FROM golang:1.22-alpine AS builder
 
-RUN apk add --no-cache gcc musl-dev
+RUN sed -i 's|https://dl-cdn.alpinelinux.org/alpine|https://mirrors.tuna.tsinghua.edu.cn/alpine|g' /etc/apk/repositories \
+    && apk add --no-cache gcc musl-dev
 
 WORKDIR /app
 
