@@ -41,12 +41,13 @@ type ChatMessage struct {
 }
 
 type OpenAIResponse struct {
-	ID      string   `json:"id"`
-	Object  string   `json:"object"`
-	Created int64    `json:"created"`
-	Model   string   `json:"model"`
-	Choices []Choice `json:"choices"`
-	Usage   Usage    `json:"usage"`
+	ID      string                 `json:"id"`
+	Object  string                 `json:"object"`
+	Created int64                  `json:"created"`
+	Model   string                 `json:"model"`
+	Choices []Choice               `json:"choices"`
+	Usage   Usage                  `json:"usage"`
+	RawBody map[string]interface{} `json:"-"`
 }
 
 type Choice struct {
@@ -60,6 +61,17 @@ type Usage struct {
 	PromptTokens     int64 `json:"prompt_tokens"`
 	CompletionTokens int64 `json:"completion_tokens"`
 	TotalTokens      int64 `json:"total_tokens"`
+}
+
+func (r OpenAIResponse) MarshalJSON() ([]byte, error) {
+	if len(r.RawBody) > 0 {
+		return json.Marshal(r.RawBody)
+	}
+
+	type alias OpenAIResponse
+	copyResp := alias(r)
+	copyResp.RawBody = nil
+	return json.Marshal(copyResp)
 }
 
 type OpenAIModelsResponse struct {

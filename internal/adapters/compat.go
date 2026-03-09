@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 )
@@ -297,4 +298,39 @@ func jsonInt64(value interface{}) (int64, bool) {
 	default:
 		return 0, false
 	}
+}
+
+func decodePreservedResponse(body io.Reader) (*OpenAIResponse, error) {
+	payloadBytes, err := io.ReadAll(body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	var raw map[string]interface{}
+	if err := json.Unmarshal(payloadBytes, &raw); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	resp := &OpenAIResponse{
+		RawBody: raw,
+	}
+	if id, ok := raw["id"].(string); ok {
+		resp.ID = id
+	}
+	if object, ok := raw["object"].(string); ok {
+		resp.Object = object
+	}
+	if model, ok := raw["model"].(string); ok {
+		resp.Model = model
+	}
+	if created, ok := jsonInt64(raw["created"]); ok {
+		resp.Created = created
+	}
+	if usage, ok := raw["usage"].(map[string]interface{}); ok {
+		resp.Usage.PromptTokens, _ = jsonInt64(usage["prompt_tokens"])
+		resp.Usage.CompletionTokens, _ = jsonInt64(usage["completion_tokens"])
+		resp.Usage.TotalTokens, _ = jsonInt64(usage["total_tokens"])
+	}
+
+	return resp, nil
 }

@@ -60,12 +60,12 @@ func (a *OpenAIAdapter) ChatCompletion(ctx context.Context, req OpenAIRequest, m
 		return nil, ParseErrorResponse(resp)
 	}
 
-	var openaiResp OpenAIResponse
-	if err := json.NewDecoder(resp.Body).Decode(&openaiResp); err != nil {
+	openaiResp, err := decodePreservedResponse(resp.Body)
+	if err != nil {
 		return nil, fmt.Errorf("failed to decode openai response: %w", err)
 	}
 
-	return &openaiResp, nil
+	return openaiResp, nil
 }
 func (a *OpenAIAdapter) Completion(ctx context.Context, req OpenAIRequest, model models.Model) (*OpenAIResponse, error) {
 	baseURL := model.BaseURL
@@ -101,12 +101,12 @@ func (a *OpenAIAdapter) Completion(ctx context.Context, req OpenAIRequest, model
 		return nil, ParseErrorResponse(resp)
 	}
 
-	var openaiResp OpenAIResponse
-	if err := json.NewDecoder(resp.Body).Decode(&openaiResp); err != nil {
+	openaiResp, err := decodePreservedResponse(resp.Body)
+	if err != nil {
 		return nil, fmt.Errorf("failed to decode openai response: %w", err)
 	}
 
-	return &openaiResp, nil
+	return openaiResp, nil
 }
 
 func (a *OpenAIAdapter) Models(ctx context.Context, model models.Model) (*OpenAIModelsResponse, error) {

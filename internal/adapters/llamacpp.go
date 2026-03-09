@@ -55,12 +55,12 @@ func (a *LlamaCppAdapter) ChatCompletion(ctx context.Context, req OpenAIRequest,
 		return nil, ParseErrorResponse(resp)
 	}
 
-	var llamaResp OpenAIResponse
-	if err := json.NewDecoder(resp.Body).Decode(&llamaResp); err != nil {
+	llamaResp, err := decodePreservedResponse(resp.Body)
+	if err != nil {
 		return nil, fmt.Errorf("failed to decode llama.cpp response: %w", err)
 	}
 
-	return &llamaResp, nil
+	return llamaResp, nil
 }
 func (a *LlamaCppAdapter) Completion(ctx context.Context, req OpenAIRequest, model models.Model) (*OpenAIResponse, error) {
 	baseURL := model.BaseURL
@@ -93,12 +93,12 @@ func (a *LlamaCppAdapter) Completion(ctx context.Context, req OpenAIRequest, mod
 		return nil, ParseErrorResponse(resp)
 	}
 
-	var llamaResp OpenAIResponse
-	if err := json.NewDecoder(resp.Body).Decode(&llamaResp); err != nil {
+	llamaResp, err := decodePreservedResponse(resp.Body)
+	if err != nil {
 		return nil, fmt.Errorf("failed to decode llama.cpp response: %w", err)
 	}
 
-	return &llamaResp, nil
+	return llamaResp, nil
 }
 
 func (a *LlamaCppAdapter) Models(ctx context.Context, model models.Model) (*OpenAIModelsResponse, error) {

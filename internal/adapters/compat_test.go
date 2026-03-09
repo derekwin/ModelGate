@@ -136,6 +136,58 @@ func TestOpenAIAdapterCompletionStreamingUsesSSE(t *testing.T) {
 	}
 }
 
+func TestOpenAIAdapterChatCompletionPreservesToolCallsInJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"chatcmpl-tool-1","object":"chat.completion","created":1,"model":"gpt-4o-mini","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"lookup_weather","arguments":"{\"city\":\"Shanghai\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`))
+	}))
+	defer server.Close()
+
+	adapter := NewOpenAIAdapter(server.URL, "test-key", nil, time.Second, ResilienceOptions{})
+	resp, err := adapter.ChatCompletion(context.Background(), OpenAIRequest{
+		Model: "gpt-4o-mini",
+		RawBody: map[string]interface{}{
+			"model": "gpt-4o-mini",
+			"messages": []interface{}{
+				map[string]interface{}{"role": "user", "content": "weather"},
+			},
+		},
+	}, models.Model{})
+	if err != nil {
+		t.Fatalf("chat completion failed: %v", err)
+	}
+
+	jsonBytes, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("marshal response: %v", err)
+	}
+
+	var encoded map[string]interface{}
+	if err := json.Unmarshal(jsonBytes, &encoded); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	choices, ok := encoded["choices"].([]interface{})
+	if !ok || len(choices) != 1 {
+		t.Fatalf("unexpected choices: %#v", encoded["choices"])
+	}
+	choice, ok := choices[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("unexpected choice shape: %#v", choices[0])
+	}
+	message, ok := choice["message"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("unexpected message shape: %#v", choice["message"])
+	}
+	toolCalls, ok := message["tool_calls"].([]interface{})
+	if !ok || len(toolCalls) != 1 {
+		t.Fatalf("tool_calls not preserved: %#v", message["tool_calls"])
+	}
+	if resp.Usage.TotalTokens != 5 {
+		t.Fatalf("usage not preserved: %+v", resp.Usage)
+	}
+}
+
 func TestOllamaAdapterChatStreamingEmitsOpenAIChunks(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/chat" {

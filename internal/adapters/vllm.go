@@ -55,12 +55,12 @@ func (a *VLLMAdapter) ChatCompletion(ctx context.Context, req OpenAIRequest, mod
 		return nil, ParseErrorResponse(resp)
 	}
 
-	var vllmResp OpenAIResponse
-	if err := json.NewDecoder(resp.Body).Decode(&vllmResp); err != nil {
+	vllmResp, err := decodePreservedResponse(resp.Body)
+	if err != nil {
 		return nil, fmt.Errorf("failed to decode vllm response: %w", err)
 	}
 
-	return &vllmResp, nil
+	return vllmResp, nil
 }
 func (a *VLLMAdapter) Completion(ctx context.Context, req OpenAIRequest, model models.Model) (*OpenAIResponse, error) {
 	baseURL := model.BaseURL
@@ -93,12 +93,12 @@ func (a *VLLMAdapter) Completion(ctx context.Context, req OpenAIRequest, model m
 		return nil, ParseErrorResponse(resp)
 	}
 
-	var vllmResp OpenAIResponse
-	if err := json.NewDecoder(resp.Body).Decode(&vllmResp); err != nil {
+	vllmResp, err := decodePreservedResponse(resp.Body)
+	if err != nil {
 		return nil, fmt.Errorf("failed to decode vllm response: %w", err)
 	}
 
-	return &vllmResp, nil
+	return vllmResp, nil
 }
 
 func (a *VLLMAdapter) Models(ctx context.Context, model models.Model) (*OpenAIModelsResponse, error) {

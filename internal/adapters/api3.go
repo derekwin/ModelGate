@@ -60,12 +60,12 @@ func (a *API3Adapter) ChatCompletion(ctx context.Context, req OpenAIRequest, mod
 		return nil, ParseErrorResponse(resp)
 	}
 
-	var api3Resp OpenAIResponse
-	if err := json.NewDecoder(resp.Body).Decode(&api3Resp); err != nil {
+	api3Resp, err := decodePreservedResponse(resp.Body)
+	if err != nil {
 		return nil, fmt.Errorf("failed to decode api3 response: %w", err)
 	}
 
-	return &api3Resp, nil
+	return api3Resp, nil
 }
 
 func (a *API3Adapter) Completion(ctx context.Context, req OpenAIRequest, model models.Model) (*OpenAIResponse, error) {
@@ -102,12 +102,12 @@ func (a *API3Adapter) Completion(ctx context.Context, req OpenAIRequest, model m
 		return nil, ParseErrorResponse(resp)
 	}
 
-	var api3Resp OpenAIResponse
-	if err := json.NewDecoder(resp.Body).Decode(&api3Resp); err != nil {
+	api3Resp, err := decodePreservedResponse(resp.Body)
+	if err != nil {
 		return nil, fmt.Errorf("failed to decode api3 response: %w", err)
 	}
 
-	return &api3Resp, nil
+	return api3Resp, nil
 }
 
 func (a *API3Adapter) Models(ctx context.Context, model models.Model) (*OpenAIModelsResponse, error) {
