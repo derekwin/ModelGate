@@ -4,7 +4,7 @@ server:
   mode: release
 
 database:
-  path: ./data/modelgate.db
+  dsn: host=localhost user=modelgate password=modelgate dbname=modelgate port=5432 sslmode=disable TimeZone=UTC
 
 redis:
   addr: localhost:6379

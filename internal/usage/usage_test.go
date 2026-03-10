@@ -2,56 +2,44 @@ package usage
 
 import (
 	"errors"
-	"path/filepath"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
+
 	"modelgate/internal/database"
-	"modelgate/internal/models"
 )
 
 func TestUpdateAPIKeyQuotaAtomicGuard(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "modelgate.db")
-	if err := database.Init(dbPath); err != nil {
-		t.Fatalf("init database: %v", err)
+	sqlDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
 	}
+	gormDB, err := database.NewGormFromSQLDB(sqlDB)
+	if err != nil {
+		t.Fatalf("gorm init: %v", err)
+	}
+	restore := database.SetDBForTesting(gormDB)
 	t.Cleanup(func() {
-		_ = database.Close()
+		restore()
+		_ = sqlDB.Close()
 	})
 
-	key := models.APIKey{
-		Key:       "test-key",
-		KeyHash:   "test-key-hash",
-		Name:      "test",
-		Quota:     10,
-		QuotaUsed: 8,
-	}
-	key.BaseModel.Status = "active"
-	if err := database.GetDB().Create(&key).Error; err != nil {
-		t.Fatalf("create key: %v", err)
-	}
-
-	err := UpdateAPIKeyQuota(key.ID, 3)
+	mock.ExpectExec(`UPDATE "api_keys" SET "quota_used"=\(quota_used \+ \$1\) WHERE id = \$2 AND quota_used \+ \$3 <= quota`).
+		WithArgs(int64(3), uint(1), int64(3)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	err = UpdateAPIKeyQuota(1, 3)
 	if !errors.Is(err, ErrInsufficientQuota) {
 		t.Fatalf("expected ErrInsufficientQuota, got %v", err)
 	}
 
-	var afterReject models.APIKey
-	if err := database.GetDB().First(&afterReject, key.ID).Error; err != nil {
-		t.Fatalf("query key after reject: %v", err)
-	}
-	if afterReject.QuotaUsed != 8 {
-		t.Fatalf("expected quota_used to stay 8, got %d", afterReject.QuotaUsed)
-	}
-
-	if err := UpdateAPIKeyQuota(key.ID, 2); err != nil {
+	mock.ExpectExec(`UPDATE "api_keys" SET "quota_used"=\(quota_used \+ \$1\) WHERE id = \$2 AND quota_used \+ \$3 <= quota`).
+		WithArgs(int64(2), uint(1), int64(2)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := UpdateAPIKeyQuota(1, 2); err != nil {
 		t.Fatalf("expected successful update, got %v", err)
 	}
 
-	var afterSuccess models.APIKey
-	if err := database.GetDB().First(&afterSuccess, key.ID).Error; err != nil {
-		t.Fatalf("query key after success: %v", err)
-	}
-	if afterSuccess.QuotaUsed != 10 {
-		t.Fatalf("expected quota_used to be 10, got %d", afterSuccess.QuotaUsed)
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
 	}
 }

@@ -46,7 +46,7 @@ func main() {
 
 	logger.Info().Msg("Starting ModelGate...")
 
-	err = database.Init(cfg.Database.Path)
+	err = database.Init(cfg.Database.DSN)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("Failed to initialize database")
 	}

@@ -2,6 +2,7 @@ package database
 
 import (
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -9,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"gorm.io/driver/sqlite"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
@@ -18,10 +19,14 @@ import (
 
 var DB *gorm.DB
 
-func Init(dbPath string) error {
+func Init(dsn string) error {
 	var err error
 
-	DB, err = gorm.Open(sqlite.Open(dbPath), &gorm.Config{
+	if strings.TrimSpace(dsn) == "" {
+		return fmt.Errorf("database dsn is required")
+	}
+
+	DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Info),
 	})
 	if err != nil {
@@ -51,18 +56,41 @@ func Init(dbPath string) error {
 }
 
 func Close() error {
-	if DB != nil {
-		sqlDB, err := DB.DB()
-		if err != nil {
-			return err
-		}
-		return sqlDB.Close()
+	if DB == nil {
+		return nil
 	}
-	return nil
+
+	sqlDB, err := DB.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.Close()
 }
 
 func GetDB() *gorm.DB {
 	return DB
+}
+
+func SetDBForTesting(db *gorm.DB) func() {
+	previous := DB
+	DB = db
+	return func() {
+		DB = previous
+	}
+}
+
+func NewGormFromSQLDB(conn *sql.DB) (*gorm.DB, error) {
+	if conn == nil {
+		return nil, fmt.Errorf("sql db is required")
+	}
+
+	return gorm.Open(postgres.New(postgres.Config{
+		Conn:                 conn,
+		PreferSimpleProtocol: true,
+	}), &gorm.Config{
+		Logger:                 logger.Default.LogMode(logger.Silent),
+		SkipDefaultTransaction: true,
+	})
 }
 
 func EnsureAdminKey(adminAPIKey string) error {

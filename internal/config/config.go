@@ -36,7 +36,7 @@ type ServerConfig struct {
 }
 
 type DatabaseConfig struct {
-	Path string `mapstructure:"path"`
+	DSN string `mapstructure:"dsn"`
 }
 
 type RedisConfig struct {
@@ -101,7 +101,7 @@ func Load(path string) (*Config, error) {
 		viper.SetDefault("server.host", "0.0.0.0")
 		viper.SetDefault("server.port", 8080)
 		viper.SetDefault("server.mode", "release")
-		viper.SetDefault("database.path", "./data/modelgate.db")
+		viper.SetDefault("database.dsn", "host=localhost user=modelgate password=modelgate dbname=modelgate port=5432 sslmode=disable TimeZone=UTC")
 		viper.SetDefault("redis.addr", "localhost:6379")
 		viper.SetDefault("redis.password", "")
 		viper.SetDefault("redis.db", 0)

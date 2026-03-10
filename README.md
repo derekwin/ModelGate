@@ -33,7 +33,7 @@ make build
 
 Data plane starts on `http://localhost:8080` and control plane starts on `http://localhost:8081`
 
-**Note**: On first start, check logs for the admin API key or set it in `configs/config.yaml`
+**Note**: On first start, make sure PostgreSQL is reachable and set the admin API key in `configs/config.yaml` or `MG_ADMIN_API_KEY`
 
 ## Configuration
 
@@ -43,7 +43,7 @@ Edit `configs/config.yaml`:
 |---------|---------|-------------|
 | server.port | 8080 | HTTP port |
 | admin.port | 8081 | Admin/UI HTTP port |
-| database.path | ./data/modelgate.db | SQLite database path |
+| database.dsn | host=localhost user=modelgate password=modelgate dbname=modelgate port=5432 sslmode=disable TimeZone=UTC | PostgreSQL DSN |
 | redis.addr | localhost:6379 | Redis address |
 | rate_limit.rpm | 60 | Requests per minute |
 | quota.default_tokens | 1000000 | Default token quota |
@@ -227,7 +227,7 @@ modelgate/
 │   ├── admin/               # Admin API
 │   ├── auth/                # API key auth
 │   ├── config/              # Configuration
-│   ├── database/            # SQLite setup
+│   ├── database/            # PostgreSQL setup
 │   ├── limiter/             # Rate limiter
 │   ├── middleware/          # HTTP middleware
 │   ├── models/              # DB models

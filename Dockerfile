@@ -1,14 +1,4 @@
-FROM golang:1.22-bookworm AS builder
-
-RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
-        sed -i 's|http://deb.debian.org/debian|http://mirrors.tuna.tsinghua.edu.cn/debian|g; s|http://security.debian.org/debian-security|http://mirrors.tuna.tsinghua.edu.cn/debian-security|g' /etc/apt/sources.list.d/debian.sources; \
-    fi \
-    && if [ -f /etc/apt/sources.list ]; then \
-        sed -i 's|http://deb.debian.org/debian|http://mirrors.tuna.tsinghua.edu.cn/debian|g; s|http://security.debian.org/debian-security|http://mirrors.tuna.tsinghua.edu.cn/debian-security|g' /etc/apt/sources.list; \
-    fi \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends build-essential ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+FROM golang:1.22-alpine AS builder
 
 WORKDIR /app
 
@@ -19,20 +9,13 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=1 go build -o modelgate cmd/server/main.go
+RUN CGO_ENABLED=0 go build -o modelgate cmd/server/main.go
 
-FROM debian:bookworm-slim
+FROM alpine:latest
 
-RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
-        sed -i 's|http://deb.debian.org/debian|http://mirrors.tuna.tsinghua.edu.cn/debian|g; s|http://security.debian.org/debian-security|http://mirrors.tuna.tsinghua.edu.cn/debian-security|g' /etc/apt/sources.list.d/debian.sources; \
-    fi \
-    && if [ -f /etc/apt/sources.list ]; then \
-        sed -i 's|http://deb.debian.org/debian|http://mirrors.tuna.tsinghua.edu.cn/debian|g; s|http://security.debian.org/debian-security|http://mirrors.tuna.tsinghua.edu.cn/debian-security|g' /etc/apt/sources.list; \
-    fi \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-RUN useradd -m -d /app app
+RUN sed -i 's|https://dl-cdn.alpinelinux.org/alpine|https://mirrors.tuna.tsinghua.edu.cn/alpine|g' /etc/apk/repositories \
+    && apk add --no-cache ca-certificates
+RUN adduser -D -h /app app
 
 WORKDIR /app
 
