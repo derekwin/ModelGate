@@ -31,11 +31,11 @@ make build
 ./modelgate
 ```
 
-Data plane starts on `http://localhost:8080` and control plane starts on `http://localhost:8081`
+API and Admin UI are served from the same HTTP port: `http://localhost:8080`
 
 **Note**: On first start, make sure PostgreSQL is reachable and set the admin API key in `configs/config.yaml` or `MG_ADMIN_API_KEY`
 
-`docker-compose.yml` maps the same host ports by default: `8080 -> 8080` and `8081 -> 8081`.
+`docker-compose.yml` maps the same host port by default: `8080 -> 8080`.
 
 ## Configuration
 
@@ -44,7 +44,6 @@ Edit `configs/config.yaml`:
 | Setting | Default | Description |
 |---------|---------|-------------|
 | server.port | 8080 | HTTP port |
-| admin.port | 8081 | Admin/UI HTTP port |
 | database.dsn | host=localhost user=modelgate password=modelgate dbname=modelgate port=5432 sslmode=disable TimeZone=UTC | PostgreSQL DSN |
 | redis.addr | localhost:6379 | Redis address |
 | rate_limit.rpm | 60 | Requests per minute |
@@ -102,7 +101,7 @@ Two ways to manage API keys and models:
 
 ### 1. Web Admin UI
 
-Access at `http://ip:8081/admin`
+Access at `http://ip:8080/admin`
 
 ![Login](docs/imgs/login.png)
 
@@ -124,17 +123,17 @@ make build-cli
 
 | Option | Alias | Default |
 |--------|-------|---------|
-| --server | -s | http://ip:8081 |
+| --server | -s | http://ip:8080 |
 | --api-key | -k | (required) |
 | --config | -c | ./configs/config.yaml |
 
 ```bash
 # Via env vars
-export MODELGATE_SERVER=http://localhost:8081
+export MODELGATE_SERVER=http://localhost:8080
 export MODELGATE_API_KEY=your_admin_key
 
 # Via flags
-./modelgate-cli -s http://localhost:8081 -k your_admin_key <command>
+./modelgate-cli -s http://localhost:8080 -k your_admin_key <command>
 ```
 
 #### Commands

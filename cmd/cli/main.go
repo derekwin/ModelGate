@@ -42,7 +42,7 @@ func getGlobalFlags(c *cli.Context) (string, string) {
 		k = os.Getenv("MODELGATE_API_KEY")
 	}
 	if s == "" {
-		s = "http://localhost:8081"
+		s = "http://localhost:8080"
 	}
 	return s, k
 }

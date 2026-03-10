@@ -24,8 +24,6 @@ max_body_size: 5242880
 
 admin:
   api_key: ""  # Required on first startup (or set MG_ADMIN_API_KEY)
-  host: 0.0.0.0
-  port: 8081
 
 adapters:
   ollama:

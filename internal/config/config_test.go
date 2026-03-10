@@ -36,11 +36,9 @@ server:
   mode: release
 admin:
   api_key: bootstrap-key
-  host: 127.0.0.1
-  port: 8081
 `)
 
-	t.Setenv("MG_ADMIN_PORT", "9090")
+	t.Setenv("MG_ADMIN_API_KEY", "override-key")
 	t.Setenv("MG_SERVER_PORT", "18080")
 
 	loaded, err := Load(path)
@@ -48,8 +46,8 @@ admin:
 		t.Fatalf("load config: %v", err)
 	}
 
-	if loaded.Admin.Port != 9090 {
-		t.Fatalf("expected admin port override 9090, got %d", loaded.Admin.Port)
+	if loaded.Admin.APIKey != "override-key" {
+		t.Fatalf("expected admin api key override, got %q", loaded.Admin.APIKey)
 	}
 	if loaded.Server.Port != 18080 {
 		t.Fatalf("expected server port override 18080, got %d", loaded.Server.Port)
@@ -67,16 +65,14 @@ server:
   mode: release
 admin:
   api_key: bootstrap-key
-  host: 127.0.0.1
-  port: 8081
 `)
 
 	loaded, err := Load(path)
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if loaded.Admin.Port != 8081 {
-		t.Fatalf("expected initial admin port 8081, got %d", loaded.Admin.Port)
+	if loaded.Admin.APIKey != "bootstrap-key" {
+		t.Fatalf("expected initial admin api key bootstrap-key, got %q", loaded.Admin.APIKey)
 	}
 
 	if err := os.WriteFile(path, []byte(`
@@ -85,9 +81,7 @@ server:
   port: 8088
   mode: release
 admin:
-  api_key: bootstrap-key
-  host: 127.0.0.1
-  port: 9091
+  api_key: updated-key
 `), 0o644); err != nil {
 		t.Fatalf("rewrite config file: %v", err)
 	}
@@ -100,7 +94,7 @@ admin:
 	if reloaded.Server.Port != 8088 {
 		t.Fatalf("expected reloaded server port 8088, got %d", reloaded.Server.Port)
 	}
-	if reloaded.Admin.Port != 9091 {
-		t.Fatalf("expected reloaded admin port 9091, got %d", reloaded.Admin.Port)
+	if reloaded.Admin.APIKey != "updated-key" {
+		t.Fatalf("expected reloaded admin api key updated-key, got %q", reloaded.Admin.APIKey)
 	}
 }

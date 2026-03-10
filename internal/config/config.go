@@ -25,8 +25,6 @@ type Config struct {
 
 type AdminConfig struct {
 	APIKey string `mapstructure:"api_key"`
-	Host   string `mapstructure:"host"`
-	Port   int    `mapstructure:"port"`
 }
 
 type ServerConfig struct {
@@ -110,8 +108,6 @@ func Load(path string) (*Config, error) {
 		viper.SetDefault("quota.default_tokens", 1000000)
 		viper.SetDefault("timeout", "300s")
 		viper.SetDefault("max_body_size", 5242880)
-		viper.SetDefault("admin.host", "0.0.0.0")
-		viper.SetDefault("admin.port", 8081)
 		viper.SetDefault("resilience.retry_attempts", 2)
 		viper.SetDefault("resilience.retry_backoff", "200ms")
 		viper.SetDefault("resilience.circuit_breaker.failure_threshold", 5)
