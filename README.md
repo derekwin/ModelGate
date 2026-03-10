@@ -19,6 +19,10 @@ A production-grade Go-based LLM API Gateway providing OpenAI-compatible endpoint
 docker compose up -d --build
 ```
 
+When ModelGate runs in Docker and Ollama/vLLM/llama.cpp run on the host machine, the compose file maps
+`host.docker.internal` to the host gateway and points the default backend URLs there. Inside the container,
+`localhost` would refer to the container itself, not your host.
+
 ### Manual Setup
 
 1. Build the binary:
@@ -56,6 +60,11 @@ Default backend examples:
 - `adapters.ollama.base_url`: `http://localhost:11434`
 - `adapters.vllm.base_url`: `http://localhost:8000`
 - `adapters.llamacpp.base_url`: `http://localhost:8082`
+
+Docker Compose host-backend defaults:
+- `MG_ADAPTERS_OLLAMA_BASE_URL=http://host.docker.internal:11434`
+- `MG_ADAPTERS_VLLM_BASE_URL=http://host.docker.internal:8000`
+- `MG_ADAPTERS_LLAMACPP_BASE_URL=http://host.docker.internal:8082`
 
 ### Admin API Key Configuration
 
@@ -188,6 +197,10 @@ curl -X POST http://192.168.28.100:18080/v1/chat/completions \
 curl http://localhost:18080/v1/models \
   -H "Authorization: Bearer your-user-api-key"
 ```
+
+If you see an upstream error like `connect: connection refused` to `localhost:11434` from a containerized
+ModelGate, the backend URL is still pointing at the container itself. Set the backend URL to the host
+gateway, for example `http://host.docker.internal:11434`.
 
 ![cURL](docs/imgs/curl.png)
 

@@ -8,6 +8,11 @@ services:
     environment:
       - MG_REDIS_ADDR=redis:6379
       - MG_DATABASE_DSN=host=postgres user=modelgate password=modelgate dbname=modelgate port=5432 sslmode=disable TimeZone=UTC
+      - MG_ADAPTERS_OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - MG_ADAPTERS_VLLM_BASE_URL=http://host.docker.internal:8000
+      - MG_ADAPTERS_LLAMACPP_BASE_URL=http://host.docker.internal:8082
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       redis:
         condition: service_started
