@@ -16,7 +16,7 @@ A production-grade Go-based LLM API Gateway providing OpenAI-compatible endpoint
 ### Using Docker Compose
 
 ```bash
-docker-compose up -d
+docker compose up -d --build
 ```
 
 ### Manual Setup
