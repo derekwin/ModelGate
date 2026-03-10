@@ -2,8 +2,8 @@ services:
   modelgate:
     build: .
     ports:
-      - "8080:8080"
-      - "8081:8081"
+      - "${MODELGATE_DATA_PORT:-18080}:8080"
+      - "${MODELGATE_ADMIN_PORT:-18081}:8081"
     volumes:
       - ./data:/app/data
       - ./configs:/app/configs
