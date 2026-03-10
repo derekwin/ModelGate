@@ -13,7 +13,7 @@ build-cli:
 	go build -o $(CLI_NAME) ./cmd/cli/main.go
 
 run: build
-	lsof -ti :8080 | xargs -r kill -9
+	lsof -ti :18080 | xargs -r kill -9
 	./$(BINARY_NAME)
 
 test:

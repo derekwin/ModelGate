@@ -129,13 +129,13 @@ FROM alpine:latest
 RUN adduser -D app
 USER app
 COPY modelgate .
-EXPOSE 8080
+EXPOSE 18080
 ENTRYPOINT ["./modelgate"]
 
 ## Default Configuration
 
 | Setting | Default |
-|Port|8080|
+|Port|18080|
 |DB Path|./data/modelgate.db|
 |Redis Addr|localhost:6379|
 |Timeout|300s|
