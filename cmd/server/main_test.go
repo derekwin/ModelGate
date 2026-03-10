@@ -1,8 +1,12 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/gin-gonic/gin"
 
 	"modelgate/internal/models"
 )
@@ -67,5 +71,39 @@ func TestBuildOpenAIModelsResponse(t *testing.T) {
 	}
 	if resp.Data[0].Created != now.Unix() {
 		t.Fatalf("expected created timestamp %d, got %d", now.Unix(), resp.Data[0].Created)
+	}
+}
+
+func TestAdminUIRoutesServeAdminPath(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/", func(c *gin.Context) {
+		c.Redirect(http.StatusTemporaryRedirect, "/admin")
+	})
+	router.GET("/admin", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+	router.GET("/admin/", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	redirectReq := httptest.NewRequest(http.MethodGet, "/", nil)
+	redirectResp := httptest.NewRecorder()
+	router.ServeHTTP(redirectResp, redirectReq)
+
+	if redirectResp.Code != http.StatusTemporaryRedirect {
+		t.Fatalf("expected redirect from /, got %d", redirectResp.Code)
+	}
+	if got := redirectResp.Header().Get("Location"); got != "/admin" {
+		t.Fatalf("expected redirect to /admin, got %q", got)
+	}
+
+	for _, path := range []string{"/admin", "/admin/"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		resp := httptest.NewRecorder()
+		router.ServeHTTP(resp, req)
+		if resp.Code != http.StatusOK {
+			t.Fatalf("expected %s to return 200, got %d", path, resp.Code)
+		}
 	}
 }

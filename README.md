@@ -35,6 +35,8 @@ Data plane starts on `http://localhost:8080` and control plane starts on `http:/
 
 **Note**: On first start, make sure PostgreSQL is reachable and set the admin API key in `configs/config.yaml` or `MG_ADMIN_API_KEY`
 
+`docker-compose.yml` maps the same host ports by default: `8080 -> 8080` and `8081 -> 8081`.
+
 ## Configuration
 
 Edit `configs/config.yaml`:
@@ -50,6 +52,11 @@ Edit `configs/config.yaml`:
 | timeout | 300s | Request timeout |
 | max_body_size | 5242880 | 5MB body limit |
 | admin.api_key | "" | Admin API key (required on first startup) |
+
+Default backend examples:
+- `adapters.ollama.base_url`: `http://localhost:11434`
+- `adapters.vllm.base_url`: `http://localhost:8000`
+- `adapters.llamacpp.base_url`: `http://localhost:8082`
 
 ### Admin API Key Configuration
 

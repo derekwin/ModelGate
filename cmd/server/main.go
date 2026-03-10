@@ -53,7 +53,7 @@ func main() {
 	defer database.Close()
 
 	if err := database.EnsureAdminKey(cfg.Admin.APIKey); err != nil {
-		logger.Warn().Err(err).Msg("Failed to ensure admin key")
+		logger.Fatal().Err(err).Msg("Failed to ensure admin key")
 	}
 
 	rateLimiter, err := limiter.NewRateLimiter(

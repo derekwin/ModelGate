@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -27,7 +26,7 @@ func Init(dsn string) error {
 	}
 
 	DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Info),
+		Logger: logger.Default.LogMode(logger.Warn),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to connect to database: %w", err)
@@ -51,7 +50,6 @@ func Init(dsn string) error {
 		return fmt.Errorf("failed to migrate database: %w", err)
 	}
 
-	log.Println("Database initialized successfully")
 	return nil
 }
 
@@ -111,7 +109,6 @@ func EnsureAdminKey(adminAPIKey string) error {
 			return nil
 		}
 
-		log.Printf("Updating admin API key in database\n")
 		adminKey.Key = adminAPIKey
 		adminKey.KeyHash = keyHash
 		adminKey.Name = "admin"

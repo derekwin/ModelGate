@@ -35,7 +35,7 @@ adapters:
     base_url: http://localhost:8000
     fallback_urls: []
   llamacpp:
-    base_url: http://localhost:8080
+    base_url: http://localhost:8082
     fallback_urls: []
   openai:
     base_url: https://api.openai.com/v1
