@@ -107,8 +107,13 @@ func main() {
 	adminGroup.Use(authMiddleware.Authenticate())
 	admin.RegisterRoutes(adminGroup)
 
-	adminRouter.Static("/static/", "./admin")
 	adminRouter.GET("/", func(c *gin.Context) {
+		c.Redirect(http.StatusTemporaryRedirect, "/admin")
+	})
+	adminRouter.GET("/admin", func(c *gin.Context) {
+		c.File("./admin/index.html")
+	})
+	adminRouter.GET("/admin/", func(c *gin.Context) {
 		c.File("./admin/index.html")
 	})
 

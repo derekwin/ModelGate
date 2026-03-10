@@ -95,7 +95,7 @@ Two ways to manage API keys and models:
 
 ### 1. Web Admin UI
 
-Access at `http://ip:8081/`
+Access at `http://ip:8081/admin`
 
 ![Login](docs/imgs/login.png)
 
