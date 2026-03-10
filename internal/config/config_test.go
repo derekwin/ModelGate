@@ -32,14 +32,14 @@ func TestLoadSupportsNestedEnvOverrides(t *testing.T) {
 	path := writeConfigFile(t, `
 server:
   host: 127.0.0.1
-  port: 8080
+  port: 18080
   mode: release
 admin:
   api_key: bootstrap-key
 `)
 
 	t.Setenv("MG_ADMIN_API_KEY", "override-key")
-	t.Setenv("MG_SERVER_PORT", "18080")
+	t.Setenv("MG_SERVER_PORT", "118080")
 
 	loaded, err := Load(path)
 	if err != nil {
@@ -49,8 +49,8 @@ admin:
 	if loaded.Admin.APIKey != "override-key" {
 		t.Fatalf("expected admin api key override, got %q", loaded.Admin.APIKey)
 	}
-	if loaded.Server.Port != 18080 {
-		t.Fatalf("expected server port override 18080, got %d", loaded.Server.Port)
+	if loaded.Server.Port != 118080 {
+		t.Fatalf("expected server port override 118080, got %d", loaded.Server.Port)
 	}
 }
 
@@ -61,7 +61,7 @@ func TestReloadRefreshesInMemoryConfig(t *testing.T) {
 	path := writeConfigFile(t, `
 server:
   host: 127.0.0.1
-  port: 8080
+  port: 18080
   mode: release
 admin:
   api_key: bootstrap-key

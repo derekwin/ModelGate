@@ -31,11 +31,11 @@ make build
 ./modelgate
 ```
 
-API and Admin UI are served from the same HTTP port: `http://localhost:8080`
+API and Admin UI are served from the same HTTP port: `http://localhost:18080`
 
 **Note**: On first start, make sure PostgreSQL is reachable and set the admin API key in `configs/config.yaml` or `MG_ADMIN_API_KEY`
 
-`docker-compose.yml` maps the same host port by default: `8080 -> 8080`.
+`docker-compose.yml` maps the same host port by default: `18080 -> 18080`.
 
 ## Configuration
 
@@ -43,7 +43,7 @@ Edit `configs/config.yaml`:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| server.port | 8080 | HTTP port |
+| server.port | 18080 | HTTP port |
 | database.dsn | host=localhost user=modelgate password=modelgate dbname=modelgate port=5432 sslmode=disable TimeZone=UTC | PostgreSQL DSN |
 | redis.addr | localhost:6379 | Redis address |
 | rate_limit.rpm | 60 | Requests per minute |
@@ -101,7 +101,7 @@ Two ways to manage API keys and models:
 
 ### 1. Web Admin UI
 
-Access at `http://ip:8080/admin`
+Access at `http://ip:18080/admin`
 
 ![Login](docs/imgs/login.png)
 
@@ -123,17 +123,17 @@ make build-cli
 
 | Option | Alias | Default |
 |--------|-------|---------|
-| --server | -s | http://ip:8080 |
+| --server | -s | http://ip:18080 |
 | --api-key | -k | (required) |
 | --config | -c | ./configs/config.yaml |
 
 ```bash
 # Via env vars
-export MODELGATE_SERVER=http://localhost:8080
+export MODELGATE_SERVER=http://localhost:18080
 export MODELGATE_API_KEY=your_admin_key
 
 # Via flags
-./modelgate-cli -s http://localhost:8080 -k your_admin_key <command>
+./modelgate-cli -s http://localhost:18080 -k your_admin_key <command>
 ```
 
 #### Commands
@@ -176,7 +176,7 @@ export MODELGATE_API_KEY=your_admin_key
 ```bash
 # Get user API key from admin panel or CLI
 # Chat completion
-curl -X POST http://192.168.28.100:8080/v1/chat/completions \
+curl -X POST http://192.168.28.100:18080/v1/chat/completions \
   -H "Authorization: Bearer your-user-api-key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -185,7 +185,7 @@ curl -X POST http://192.168.28.100:8080/v1/chat/completions \
   }'
 
 # List models
-curl http://localhost:8080/v1/models \
+curl http://localhost:18080/v1/models \
   -H "Authorization: Bearer your-user-api-key"
 ```
 
@@ -198,7 +198,7 @@ from openai import OpenAI
 
 client = OpenAI(
     api_key="YOUR_API_KEY",
-    base_url="http://localhost:8080/v1"
+    base_url="http://localhost:18080/v1"
 )
 
 response = client.chat.completions.create(
@@ -257,8 +257,8 @@ modelgate/
 All config options can be set via environment variables with `MG_` prefix:
 
 ```bash
-MG_SERVER_PORT=8080 \
-MG_DATABASE_PATH=./data/modelgate.db \
+MG_SERVER_PORT=18080 \
+MG_DATABASE_DSN="host=localhost user=modelgate password=modelgate dbname=modelgate port=5432 sslmode=disable TimeZone=UTC" \
 MG_REDIS_ADDR=localhost:6379 \
 ./modelgate
 ```

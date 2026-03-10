@@ -97,7 +97,7 @@ func Load(path string) (*Config, error) {
 		viper.AutomaticEnv()
 
 		viper.SetDefault("server.host", "0.0.0.0")
-		viper.SetDefault("server.port", 8080)
+		viper.SetDefault("server.port", 18080)
 		viper.SetDefault("server.mode", "release")
 		viper.SetDefault("database.dsn", "host=localhost user=modelgate password=modelgate dbname=modelgate port=5432 sslmode=disable TimeZone=UTC")
 		viper.SetDefault("redis.addr", "localhost:6379")

@@ -71,7 +71,7 @@ client = OpenAI(
 # 切换到 ModelGate
 client = OpenAI(
     api_key="your-modelgate-key",
-    base_url="http://your-server:8080/v1"
+    base_url="http://your-server:18080/v1"
 )
 ````
 
@@ -125,7 +125,7 @@ make build
 
 ```yaml
 server:
-  port: 8080
+  port: 18080
 
 admin:
   api_key: "your-admin-key"  # 管理员 Key，支持热重载
@@ -148,7 +148,7 @@ adapters:
 ### 开始使用
 
 ```bash
-curl -X POST http://localhost:8080/v1/chat/completions \
+curl -X POST http://localhost:18080/v1/chat/completions \
   -H "Authorization: Bearer your-user-key" \
   -H "Content-Type: application/json" \
   -d '{

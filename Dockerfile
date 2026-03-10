@@ -26,7 +26,7 @@ COPY --from=builder /app/admin ./admin
 RUN mkdir -p data \
     && chown -R app:app /app
 
-EXPOSE 8080 8081
+EXPOSE 18080
 
 USER app
 

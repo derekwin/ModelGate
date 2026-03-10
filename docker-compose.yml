@@ -2,7 +2,7 @@ services:
   modelgate:
     build: .
     ports:
-      - "${MODELGATE_PORT:-8080}:8080"
+      - "${MODELGATE_PORT:-18080}:18080"
     volumes:
       - ./configs:/app/configs
     environment:
