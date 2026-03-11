@@ -245,3 +245,83 @@ func TestOllamaAdapterChatStreamingEmitsOpenAIChunks(t *testing.T) {
 		t.Fatalf("unexpected usage: %+v", resp.Usage)
 	}
 }
+
+func TestOllamaAdapterChatCompletionDisablesStreamingAndPreservesUsage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/chat" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+
+		var body map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if stream, ok := body["stream"].(bool); !ok || stream {
+			t.Fatalf("expected non-stream ollama request, got %#v", body["stream"])
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"message":{"role":"assistant","content":"Hello from Ollama"},"done":true,"prompt_eval_count":7,"eval_count":11}`))
+	}))
+	defer server.Close()
+
+	adapter := NewOllamaAdapter(server.URL, nil, time.Second, ResilienceOptions{})
+	resp, err := adapter.ChatCompletion(context.Background(), OpenAIRequest{
+		Model: "qwen3.5:35b",
+		RawBody: map[string]interface{}{
+			"model": "qwen3.5:35b",
+			"messages": []interface{}{
+				map[string]interface{}{"role": "user", "content": "Hello!"},
+			},
+		},
+	}, models.Model{})
+	if err != nil {
+		t.Fatalf("chat completion failed: %v", err)
+	}
+
+	if got := resp.Choices[0].Message.Content; got != "Hello from Ollama" {
+		t.Fatalf("unexpected content: %q", got)
+	}
+	if resp.Usage.PromptTokens != 7 || resp.Usage.CompletionTokens != 11 || resp.Usage.TotalTokens != 18 {
+		t.Fatalf("unexpected usage: %+v", resp.Usage)
+	}
+}
+
+func TestOllamaAdapterCompletionDisablesStreamingAndPreservesUsage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/generate" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+
+		var body map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if stream, ok := body["stream"].(bool); !ok || stream {
+			t.Fatalf("expected non-stream ollama request, got %#v", body["stream"])
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"response":"Hello from generate","done":true,"prompt_eval_count":3,"eval_count":5}`))
+	}))
+	defer server.Close()
+
+	adapter := NewOllamaAdapter(server.URL, nil, time.Second, ResilienceOptions{})
+	resp, err := adapter.Completion(context.Background(), OpenAIRequest{
+		Model: "qwen3.5:35b",
+		RawBody: map[string]interface{}{
+			"model":  "qwen3.5:35b",
+			"prompt": "Hello!",
+		},
+	}, models.Model{})
+	if err != nil {
+		t.Fatalf("completion failed: %v", err)
+	}
+
+	if got := resp.Choices[0].Text; got != "Hello from generate" {
+		t.Fatalf("unexpected text: %q", got)
+	}
+	if resp.Usage.PromptTokens != 3 || resp.Usage.CompletionTokens != 5 || resp.Usage.TotalTokens != 8 {
+		t.Fatalf("unexpected usage: %+v", resp.Usage)
+	}
+}

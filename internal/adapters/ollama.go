@@ -39,9 +39,7 @@ func (a *OllamaAdapter) ChatCompletion(ctx context.Context, req OpenAIRequest, m
 	ollamaReq := map[string]interface{}{
 		"model":    req.Model,
 		"messages": convertToOllamaMessages(messages),
-	}
-	if req.Stream {
-		ollamaReq["stream"] = true
+		"stream":   req.Stream,
 	}
 	if req.Temperature >= 0 {
 		ollamaReq["temperature"] = req.Temperature
@@ -79,8 +77,10 @@ func (a *OllamaAdapter) ChatCompletion(ctx context.Context, req OpenAIRequest, m
 			Content string `json:"content"`
 			Role    string `json:"role"`
 		} `json:"message"`
-		Done  bool `json:"done"`
-		Usage struct {
+		Done            bool `json:"done"`
+		PromptEvalCount int  `json:"prompt_eval_count"`
+		EvalCount       int  `json:"eval_count"`
+		Usage           struct {
 			PromptTokens     int `json:"prompt_tokens"`
 			CompletionTokens int `json:"completion_tokens"`
 			TotalTokens      int `json:"total_tokens"`
@@ -107,9 +107,13 @@ func (a *OllamaAdapter) ChatCompletion(ctx context.Context, req OpenAIRequest, m
 			},
 		},
 		Usage: Usage{
-			PromptTokens:     int64(ollamaResp.Usage.PromptTokens),
-			CompletionTokens: int64(ollamaResp.Usage.CompletionTokens),
-			TotalTokens:      int64(ollamaResp.Usage.TotalTokens),
+			PromptTokens:     int64(resolveOllamaPromptTokens(ollamaResp.Usage.PromptTokens, ollamaResp.PromptEvalCount)),
+			CompletionTokens: int64(resolveOllamaCompletionTokens(ollamaResp.Usage.CompletionTokens, ollamaResp.EvalCount)),
+			TotalTokens: int64(resolveOllamaTotalTokens(
+				ollamaResp.Usage.TotalTokens,
+				resolveOllamaPromptTokens(ollamaResp.Usage.PromptTokens, ollamaResp.PromptEvalCount),
+				resolveOllamaCompletionTokens(ollamaResp.Usage.CompletionTokens, ollamaResp.EvalCount),
+			)),
 		},
 	}, nil
 }
@@ -138,8 +142,10 @@ func (a *OllamaAdapter) streamChatCompletion(ctx context.Context, primaryURL str
 				Role    string `json:"role"`
 				Content string `json:"content"`
 			} `json:"message"`
-			Done  bool `json:"done"`
-			Usage struct {
+			Done            bool `json:"done"`
+			PromptEvalCount int  `json:"prompt_eval_count"`
+			EvalCount       int  `json:"eval_count"`
+			Usage           struct {
 				PromptTokens     int `json:"prompt_tokens"`
 				CompletionTokens int `json:"completion_tokens"`
 			} `json:"usage"`
@@ -153,8 +159,8 @@ func (a *OllamaAdapter) streamChatCompletion(ctx context.Context, primaryURL str
 		}
 
 		fullContent += chunk.Message.Content
-		totalPrompt = chunk.Usage.PromptTokens
-		totalCompletion = chunk.Usage.CompletionTokens
+		totalPrompt = resolveOllamaPromptTokens(chunk.Usage.PromptTokens, chunk.PromptEvalCount)
+		totalCompletion = resolveOllamaCompletionTokens(chunk.Usage.CompletionTokens, chunk.EvalCount)
 
 		if req.StreamFunc != nil {
 			if !sentRole {
@@ -264,9 +270,7 @@ func (a *OllamaAdapter) Completion(ctx context.Context, req OpenAIRequest, model
 	ollamaReq := map[string]interface{}{
 		"model":  req.Model,
 		"prompt": prompt,
-	}
-	if req.Stream {
-		ollamaReq["stream"] = true
+		"stream": req.Stream,
 	}
 	if req.Temperature >= 0 {
 		ollamaReq["temperature"] = req.Temperature
@@ -303,9 +307,11 @@ func (a *OllamaAdapter) Completion(ctx context.Context, req OpenAIRequest, model
 	}
 
 	var ollamaResp struct {
-		Response string `json:"response"`
-		Done     bool   `json:"done"`
-		Usage    struct {
+		Response        string `json:"response"`
+		Done            bool   `json:"done"`
+		PromptEvalCount int    `json:"prompt_eval_count"`
+		EvalCount       int    `json:"eval_count"`
+		Usage           struct {
 			PromptTokens     int `json:"prompt_tokens"`
 			CompletionTokens int `json:"completion_tokens"`
 			TotalTokens      int `json:"total_tokens"`
@@ -329,9 +335,13 @@ func (a *OllamaAdapter) Completion(ctx context.Context, req OpenAIRequest, model
 			},
 		},
 		Usage: Usage{
-			PromptTokens:     int64(ollamaResp.Usage.PromptTokens),
-			CompletionTokens: int64(ollamaResp.Usage.CompletionTokens),
-			TotalTokens:      int64(ollamaResp.Usage.TotalTokens),
+			PromptTokens:     int64(resolveOllamaPromptTokens(ollamaResp.Usage.PromptTokens, ollamaResp.PromptEvalCount)),
+			CompletionTokens: int64(resolveOllamaCompletionTokens(ollamaResp.Usage.CompletionTokens, ollamaResp.EvalCount)),
+			TotalTokens: int64(resolveOllamaTotalTokens(
+				ollamaResp.Usage.TotalTokens,
+				resolveOllamaPromptTokens(ollamaResp.Usage.PromptTokens, ollamaResp.PromptEvalCount),
+				resolveOllamaCompletionTokens(ollamaResp.Usage.CompletionTokens, ollamaResp.EvalCount),
+			)),
 		},
 	}, nil
 }
@@ -355,9 +365,11 @@ func (a *OllamaAdapter) streamCompletion(ctx context.Context, primaryURL string,
 
 	for {
 		var chunk struct {
-			Response string `json:"response"`
-			Done     bool   `json:"done"`
-			Usage    struct {
+			Response        string `json:"response"`
+			Done            bool   `json:"done"`
+			PromptEvalCount int    `json:"prompt_eval_count"`
+			EvalCount       int    `json:"eval_count"`
+			Usage           struct {
 				PromptTokens     int `json:"prompt_tokens"`
 				CompletionTokens int `json:"completion_tokens"`
 			} `json:"usage"`
@@ -371,8 +383,8 @@ func (a *OllamaAdapter) streamCompletion(ctx context.Context, primaryURL string,
 		}
 
 		fullText += chunk.Response
-		totalPrompt = chunk.Usage.PromptTokens
-		totalCompletion = chunk.Usage.CompletionTokens
+		totalPrompt = resolveOllamaPromptTokens(chunk.Usage.PromptTokens, chunk.PromptEvalCount)
+		totalCompletion = resolveOllamaCompletionTokens(chunk.Usage.CompletionTokens, chunk.EvalCount)
 
 		if req.StreamFunc != nil {
 			if chunk.Response != "" {
@@ -502,4 +514,25 @@ func convertToOllamaMessages(messages []map[string]interface{}) []map[string]str
 		result = append(result, item)
 	}
 	return result
+}
+
+func resolveOllamaPromptTokens(usagePromptTokens, promptEvalCount int) int {
+	if usagePromptTokens > 0 {
+		return usagePromptTokens
+	}
+	return promptEvalCount
+}
+
+func resolveOllamaCompletionTokens(usageCompletionTokens, evalCount int) int {
+	if usageCompletionTokens > 0 {
+		return usageCompletionTokens
+	}
+	return evalCount
+}
+
+func resolveOllamaTotalTokens(usageTotalTokens, promptTokens, completionTokens int) int {
+	if usageTotalTokens > 0 {
+		return usageTotalTokens
+	}
+	return promptTokens + completionTokens
 }
